@@ -1,0 +1,203 @@
+#include "stack_allocator.hpp"
+#include "traits.hpp"
+#include "constants.hpp"
+#include "memory_sf.hpp"
+
+namespace sf {
+
+StackAllocator::StackAllocator() noexcept
+    : _buffer{ static_cast<u8*>(sf_mem_alloc(DEFAULT_INIT_CAPACITY)) }
+    , _capacity{ DEFAULT_INIT_CAPACITY }
+    , _count{ 0 }
+    , _prev_count{ 0 }
+{}
+
+StackAllocator::StackAllocator(usize capacity) noexcept
+    : _buffer{ static_cast<u8*>(sf_mem_alloc(capacity)) }
+    , _capacity{ capacity }
+    , _count{ 0 }
+    , _prev_count{ 0 }
+{}
+
+StackAllocator::StackAllocator(StackAllocator&& rhs) noexcept
+    : _buffer{ rhs._buffer }
+    , _capacity{ rhs._capacity }
+    , _count{ rhs._count }
+    , _prev_count{ 0 }
+{
+    rhs._buffer = nullptr;
+    rhs._capacity = 0;
+    rhs._count = 0;
+    rhs._prev_count = 0;
+}
+
+StackAllocator& StackAllocator::operator=(StackAllocator&& rhs) noexcept
+{
+    if (this == &rhs) {
+        return *this;
+    }
+    
+    sf_mem_free(_buffer);
+    _buffer = rhs._buffer;
+    _capacity = rhs._capacity;
+    _count = rhs._count;
+    _prev_count = rhs._prev_count;
+
+    rhs._buffer = nullptr;
+    rhs._capacity = 0;
+    rhs._count = 0;
+    rhs._prev_count = 0;
+
+    return *this;
+}
+
+StackAllocator::~StackAllocator() noexcept
+{
+    if (_buffer) {
+        sf_mem_free(_buffer);
+        _buffer = nullptr;
+        _capacity = 0;
+        _count = 0;
+        _prev_count = 0;
+    }
+}
+
+void* StackAllocator::allocate(usize size, u16 alignment) noexcept
+{
+    usize padding = calc_padding_with_header(_buffer + _count, alignment, sizeof(StackAllocatorHeader));
+
+    if (_count + padding + size > _capacity) {
+        u32 new_capacity = _capacity == 0 ? DEFAULT_INIT_CAPACITY : _capacity * 2;
+        while (_count + padding + size > new_capacity) {
+            new_capacity *= 2;
+        }
+        resize(new_capacity);
+    }
+
+    StackAllocatorHeader* header = reinterpret_cast<StackAllocatorHeader*>(_buffer + _count + (padding - sizeof(StackAllocatorHeader)));
+    header->diff = _count - _prev_count;
+    header->padding = padding;
+
+    void* ptr_to_ret = _buffer + _count + padding;
+    _prev_count = _count;
+    _count += padding + size;
+    return ptr_to_ret;
+}
+
+usize StackAllocator::allocate_handle(usize size, u16 alignment) noexcept
+{
+    void* ptr = allocate(size, alignment);
+    return turn_ptr_into_handle(ptr, _buffer);  
+}
+
+ReallocReturn StackAllocator::reallocate(void* addr, usize new_size, u16 alignment) noexcept
+{
+    if (addr == nullptr) {
+        return {allocate(new_size, alignment), false};
+    } else if (new_size == 0 && is_address_in_range(_buffer, _capacity, addr)) {
+        free(addr);
+        return {nullptr, false};
+    } else {
+        if (!is_address_in_range(_buffer, _capacity, addr)) {
+            return {nullptr, false};
+        }
+        // check if it is the last allocation -> just grow/shrink this chunk of memory
+        StackAllocatorHeader* header = static_cast<StackAllocatorHeader*>(ptr_step_bytes_backward(addr, sizeof(StackAllocatorHeader)));
+        usize prev_offset = turn_ptr_into_handle(static_cast<StackAllocatorHeader*>(ptr_step_bytes_backward(addr, header->padding)), _buffer);
+
+        if (_prev_count == prev_offset) {
+            usize prev_size = _count - _prev_count;
+            // grow
+            if (new_size > prev_size) {
+                usize size_diff = new_size - prev_size;
+                usize remain_space = _capacity - _count;
+                if (remain_space < size_diff) {
+                    resize(_capacity * 2);
+                }
+                _count += size_diff;
+                return {addr, false};
+            }
+            // shrink
+            else {
+                usize size_diff = prev_size - new_size;
+                _count -= size_diff;
+                return {addr, false};
+            }
+        } else {
+            // NOTE: don't free old block, because user maybe needs to memcpy it
+            // alloc new memory block
+            return {allocate(new_size, alignment), true};
+        }
+    }
+}
+
+ReallocReturnHandle StackAllocator::reallocate_handle(usize handle, usize new_size, u16 alignment) noexcept
+{
+    if (handle == INVALID_ALLOC_HANDLE) {
+        void* addr = allocate(new_size, alignment);
+        return {turn_ptr_into_handle(addr, _buffer), false};
+    }
+    
+    ReallocReturn realloc_res = reallocate(turn_handle_into_ptr(handle, _buffer), new_size, alignment);
+    return {turn_ptr_into_handle(realloc_res.ptr, _buffer), realloc_res.should_mem_copy};
+}
+
+void StackAllocator::clear() noexcept
+{
+    _count = 0;
+}
+
+void StackAllocator::free(void* addr) noexcept {
+    if (!is_address_in_range(_buffer, _capacity, addr)) {
+        return;
+    }
+
+    StackAllocatorHeader* header = static_cast<StackAllocatorHeader*>(ptr_step_bytes_backward(addr, sizeof(StackAllocatorHeader)));
+    usize prev_offset = turn_ptr_into_handle(static_cast<StackAllocatorHeader*>(ptr_step_bytes_backward(addr, header->padding)), _buffer);
+    if (_prev_count != prev_offset) {
+        return;
+    }
+
+    _count = prev_offset;
+    _prev_count -= header->diff;
+}
+
+void StackAllocator::resize(usize new_capacity) noexcept {
+    u8* new_buffer = static_cast<u8*>(sf_mem_realloc(_buffer, new_capacity));
+    _capacity = new_capacity;
+    _buffer = new_buffer;
+}
+
+void* StackAllocator::handle_to_ptr(usize handle) const noexcept {
+#ifdef SF_DEBUG
+    if (!is_handle_in_range(_buffer, _capacity, handle) || handle == INVALID_ALLOC_HANDLE) {
+        return nullptr;
+    }
+#endif
+
+    return _buffer + handle;
+}
+
+usize StackAllocator::ptr_to_handle(void* ptr) const noexcept {
+#ifdef SF_DEBUG
+    if (!is_address_in_range(_buffer, _capacity, ptr) || ptr == nullptr) {
+        return INVALID_ALLOC_HANDLE;
+    }
+#endif
+
+    return turn_ptr_into_handle(ptr, _buffer);
+}
+
+void StackAllocator::free_handle(usize handle) noexcept {
+    if (handle == INVALID_ALLOC_HANDLE) {
+        return;
+    }
+
+    if (!is_handle_in_range(_buffer, _capacity, handle)) {
+        return;
+    }
+
+    free(turn_handle_into_ptr(handle, _buffer));
+}
+
+} // sf
