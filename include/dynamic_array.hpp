@@ -8,6 +8,7 @@
 #include "asserts_sf.hpp"
 #include "constants.hpp"
 #include "memory_sf.hpp"
+#include <algorithm>
 #include <initializer_list>
 #include <span>
 #include <tuple>
@@ -537,7 +538,7 @@ protected:
         u32 old_capacity = _capacity;
 
         if (_capacity == 0) {
-            _capacity = DEFAULT_CAPACITY;
+            _capacity = std::max(DEFAULT_CAPACITY, new_capacity);
         } else {
             if (!exact) {
                 while (_capacity < new_capacity) {

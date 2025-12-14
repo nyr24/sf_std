@@ -417,7 +417,7 @@ private:
 
         u32 old_capacity = _capacity;
         if (_capacity == 0) {
-            _capacity = DEFAULT_INIT_CAPACITY;
+            _capacity = std::max(DEFAULT_INIT_CAPACITY, new_capacity);
         }
         while (_capacity < new_capacity) {
             _capacity *= _config.grow_factor;
