@@ -1,6 +1,7 @@
 #pragma once
 
 #include "general_purpose_allocator.hpp"
+#include "optional.hpp"
 #include "traits.hpp"
 #include "defines.hpp"
 #include "iterator.hpp"
@@ -233,11 +234,22 @@ public:
     void free() noexcept {
         if constexpr (USE_HANDLE) {
             if (_data.handle != INVALID_ALLOC_HANDLE) {
+                if constexpr (std::is_destructible_v<T>) {
+                    T* data = access_data();
+                    for (u32 i{0}; i < _count; ++i) {
+                        data[i].~T();
+                    }
+                }
                 _allocator->free_handle(_data.handle);
                 _data.handle = INVALID_ALLOC_HANDLE;
             }
         } else {
             if (_data.ptr) {
+                if constexpr (std::is_destructible_v<T>) {
+                    for (u32 i{0}; i < _count; ++i) {
+                        _data.ptr[i].~T();
+                    }
+                }
                 _allocator->free(_data.ptr);
                 _data.ptr = nullptr;
             }
@@ -298,7 +310,7 @@ public:
         }
 
         sf_mem_move(item, item + 1, sizeof(T) * (_count - 1 - index));
-
+        sf_mem_zero(last_ptr(), sizeof(T));
         --_count;
     }
 
@@ -314,10 +326,6 @@ public:
         T* data = access_data();
         T* item = data + index;
         T* last = last_ptr();
-
-        if constexpr (std::is_destructible_v<T>) {
-            item->~T();
-        }
 
         if constexpr (std::is_move_assignable_v<T>) {
             *item = std::move(*last);

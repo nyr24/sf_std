@@ -4,6 +4,7 @@
 #include "defines.hpp"
 #include "memory_sf.hpp"
 #include "iterator.hpp"
+#include "asserts_sf.hpp"
 #include <initializer_list>
 #include <span>
 #include <string_view>
@@ -145,7 +146,7 @@ public:
         }
 
         sf_mem_move(item, item + 1, sizeof(T) * (_count - 1 - index));
-
+        sf_mem_zero(last_ptr(), sizeof(T));
         --_count;
     }
 
@@ -159,10 +160,6 @@ public:
 
         T* item = _buffer + index;
         T* last = last_ptr();
-
-        if constexpr (std::is_destructible_v<T>) {
-            item->~T();
-        }
 
         if constexpr (std::is_move_assignable_v<T>) {
             *item = std::move(*last);
@@ -280,10 +277,12 @@ public:
     }
 
     T& operator[](u32 ind) noexcept {
+        SF_ASSERT_MSG(ind >= 0 && ind < _count, "Out of bounds");
         return _buffer[ind];
     }
 
     const T& operator[](u32 ind) const noexcept {
+        SF_ASSERT_MSG(ind >= 0 && ind < _count, "Out of bounds");
         return _buffer[ind];
     }
 
@@ -311,7 +310,7 @@ protected:
     template<typename ...Args>
     constexpr void construct_at(T* ptr, Args&&... args) noexcept
     {
-        sf_mem_place(ptr, args...);
+        sf_mem_place(ptr, std::forward<Args>(args)...);
     }
 
     constexpr void default_construct_at(T* ptr) noexcept
