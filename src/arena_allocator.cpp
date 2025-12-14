@@ -1,4 +1,5 @@
 #include "dynamic_array.hpp"
+#include "general_purpose_allocator.hpp"
 #include "traits.hpp"
 #include "asserts_sf.hpp"
 #include "constants.hpp"
@@ -9,8 +10,8 @@
 
 namespace sf {
 
-ArenaAllocator::ArenaAllocator()
-    : regions(DEFAULT_REGIONS_INIT_CAPACITY, &get_current_gpa())
+ArenaAllocator::ArenaAllocator(GeneralPurposeAllocator& gpa)
+    : regions(DEFAULT_REGIONS_INIT_CAPACITY, &gpa)
 {
 }
 

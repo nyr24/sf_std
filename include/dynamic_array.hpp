@@ -534,20 +534,18 @@ protected:
 
     void grow(u32 new_capacity, bool exact = false) noexcept {
         SF_ASSERT_MSG(_allocator, "Allocator should be set");
-        if (_capacity >= new_capacity) {
-            return;
-        }
-
         u32 old_capacity = _capacity;
-        if (!exact) {
-            if (_capacity == 0) {
-                _capacity = DEFAULT_CAPACITY;
-            }
-            while (_capacity < new_capacity) {
-                _capacity *= GROW_FACTOR;
-            }
+
+        if (_capacity == 0) {
+            _capacity = DEFAULT_CAPACITY;
         } else {
-            _capacity = new_capacity;
+            if (!exact) {
+                while (_capacity < new_capacity) {
+                    _capacity *= GROW_FACTOR;
+                }
+            } else {
+                _capacity = new_capacity;
+            }
         }
 
         if constexpr (USE_HANDLE) {
@@ -588,7 +586,7 @@ protected:
     template<typename ...Args>
     void construct_at(T* ptr, Args&&... args) noexcept
     {
-        sf_mem_place(ptr, args...);
+        sf_mem_place(ptr, std::forward<Args>(args)...);
     }
 
     void default_construct_at(T* ptr) noexcept
@@ -668,8 +666,8 @@ struct String : public DynamicArray<char, Allocator, USE_HANDLE, GROW_FACTOR, DE
         sf_mem_copy(this->access_data() + (this->_count - sv.size()), (void*)sv.data(), sizeof(char) * sv.size());
     }
 
-    void trim_end(char trimmer = ' ') noexcept {
-        while (this->_count > 0 && (this->last() == trimmer)) {
+    void trim_end() noexcept {
+        while (this->_count > 0 && std::isspace(this->last())) {
             this->_count--;
         }
     }

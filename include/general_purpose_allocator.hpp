@@ -17,6 +17,4 @@ struct GeneralPurposeAllocator {
     void clear() noexcept {}
 };
 
-GeneralPurposeAllocator& get_current_gpa();
-
 } // sf

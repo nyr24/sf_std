@@ -100,7 +100,7 @@ public:
             return false;
         }
         
-        return sf_mem_cmp(arr.data(), sv.data(), arr.count());
+        return sf_mem_cmp((void*)arr.data(), (void*)sv.data(), arr.count());
     }
 
     template<typename ...Args>
@@ -128,7 +128,7 @@ public:
 
     constexpr void append(std::span<T> sp) noexcept {
         allocate(sp.size());
-        sf_mem_copy(_buffer + _count, sp.data(), sp.size());
+        sf_mem_copy(_buffer + _count, (void*)sp.data(), sp.size());
     }
 
     constexpr void remove_at(u32 index) noexcept {
@@ -376,8 +376,8 @@ struct FixedString : public FixedArray<char, CAPACITY>
         sf_mem_copy(this->data() + (this->_count - sv.size()), (void*)sv.data(), sizeof(char) * sv.size());
     }
 
-    void trim_end(char trimmer = ' ') noexcept {
-        while (this->_count > 0 && (this->last() == trimmer)) {
+    void trim_end() noexcept {
+        while (this->_count > 0 && std::isspace(this->last())) {
             this->_count--;
         }
     }
@@ -402,6 +402,5 @@ struct FixedString : public FixedArray<char, CAPACITY>
         return this->last() == '\0';
     }
 };
-
 
 } // sf

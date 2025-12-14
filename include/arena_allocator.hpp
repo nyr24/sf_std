@@ -32,7 +32,7 @@ public:
 private:
     DynamicArray<Region, GeneralPurposeAllocator, false> regions;
 public:
-    ArenaAllocator();
+    ArenaAllocator(GeneralPurposeAllocator& gpa);
     ~ArenaAllocator();
     void* allocate(usize size, u16 alignment);
     usize allocate_handle(usize size, u16 alignment);
