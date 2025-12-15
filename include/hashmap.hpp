@@ -8,6 +8,7 @@
 #include "utility.hpp"
 #include "iterator.hpp"
 #include "optional.hpp"
+#include "logger.hpp"
 #include <cstring>
 #include <string_view>
 #include <utility>
@@ -151,11 +152,11 @@ private:
     HashMapConfig<K>    _config;
 
 public:
-    HashMap()
+    HashMap(const HashMapConfig<K>& config = get_default_config<K>())
         : _allocator{nullptr}
         , _capacity{0}
         , _count{0}
-        , _config{ get_default_config<K>() }
+        , _config{config}
     {
         if constexpr (USE_HANDLE) {
             _data.handle = INVALID_ALLOC_HANDLE;
@@ -164,11 +165,11 @@ public:
         }
     }
 
-    HashMap(Allocator* allocator)
+    HashMap(Allocator* allocator, const HashMapConfig<K>& config = get_default_config<K>())
         : _allocator{allocator}
         , _capacity{0}
         , _count{0}
-        , _config{ get_default_config<K>() }
+        , _config{config}
     {
         if constexpr (USE_HANDLE) {
             _data.handle = INVALID_ALLOC_HANDLE;
@@ -179,11 +180,11 @@ public:
     
     HashMap(u32 prealloc_count, Allocator* allocator, const HashMapConfig<K>& config = get_default_config<K>())
         : _allocator{allocator}
-        , _capacity{prealloc_count}
+        , _capacity{0}
         , _count{0}
         , _config{config}
     {
-        init_buffer_empty(access_data(), _capacity);
+        resize_empty(prealloc_count);
     }
 
     HashMap(HashMap<K, V, Allocator>&& rhs) noexcept
@@ -242,11 +243,35 @@ public:
     void free() noexcept {
         if constexpr (USE_HANDLE) {
             if (_data.handle != INVALID_ALLOC_HANDLE) {
+                if constexpr (std::is_destructible_v<K> || std::is_destructible_v<V>) {
+                    for (auto it{begin()}; it != end(); ++it) {
+                        if (it->state == Bucket::FILLED) {
+                            if constexpr (std::is_destructible_v<K>) {
+                                it->key.~K();
+                            }
+                            if constexpr (std::is_destructible_v<V>) {
+                                it->value.~V();
+                            }
+                        }
+                    }
+                }
                 _allocator->free_handle(_data.handle);
                 _data.handle = INVALID_ALLOC_HANDLE;
             }
         } else {
             if (_data.ptr) {
+                if constexpr (std::is_destructible_v<K> || std::is_destructible_v<V>) {
+                    for (auto it{begin()}; it != end(); ++it) {
+                        if (it->state == Bucket::FILLED) {
+                            if constexpr (std::is_destructible_v<K>) {
+                                it->key.~K();
+                            }
+                            if constexpr (std::is_destructible_v<V>) {
+                                it->value.~V();
+                            }
+                        }
+                    }
+                }
                 _allocator->free(_data.ptr);
                 _data.ptr = nullptr;
             }
@@ -254,6 +279,7 @@ public:
     }
 
     void set_allocator(Allocator* alloc) noexcept {
+        SF_ASSERT_MSG(alloc, "Should be valid pointer");
         _allocator = alloc;
     }
 
@@ -261,6 +287,7 @@ public:
     template<typename Key, typename Val>
     requires SameTypes<K, Key> && SameTypes<V, Val>
     void put(Key&& key, Val&& val) noexcept {
+        SF_ASSERT_MSG(_allocator, "Should be valid pointer");
         if (_count > static_cast<u32>(_capacity * _config.load_factor)) {
             resize(_capacity * _config.grow_factor);
         }
@@ -274,10 +301,10 @@ public:
         }
 
         if (data[index].state != Bucket::FILLED) {
-            data[index] = Bucket{ .key = std::forward<Key>(key), .value = std::forward<Val>(val), .state = Bucket::FILLED };
+            data[index] = Bucket{ .key = std::forward<Key&&>(key), .value = std::forward<Val&&>(val), .state = Bucket::FILLED };
             ++_count;
         } else {
-            data[index].value = std::forward<Val>(val);
+            data[index].value = std::forward<Val&&>(val);
         }
     }
 
@@ -295,12 +322,13 @@ public:
 
         if (data[index].state != Bucket::FILLED) {
             if (_count > static_cast<u32>(_capacity * _config.load_factor)) {
+                LOG_ERROR("Not enough capacity in HashMap");
                 return false;
             }
-            data[index] = Bucket{ .key = std::forward<Key>(key), .value = std::forward<Val>(val), .state = Bucket::FILLED };
+            data[index] = Bucket{ .key = std::forward<Key&&>(key), .value = std::forward<Val&&>(val), .state = Bucket::FILLED };
             ++_count;
         } else {
-            data[index].value = std::move(val);
+            data[index].value = std::forward<Val&&>(val);
         }
 
         return true;
@@ -327,7 +355,7 @@ public:
             return false;
         } else {
             ++_count;
-            data[index] = Bucket{ .key = std::forward<Key>(key), .value = std::forward<Val>(val), .state = Bucket::FILLED };
+            data[index] = Bucket{ .key = std::forward<Key&&>(key), .value = std::forward<Val&&>(val), .state = Bucket::FILLED };
             return true;
         }
     }
@@ -348,6 +376,13 @@ public:
         }
 
         Bucket* bucket = maybe_bucket.unwrap_copy();
+        if constexpr (std::is_destructible_v<K>) {
+            bucket->key.~K();
+        }
+        if constexpr (std::is_destructible_v<V>) {
+            bucket->value.~V();
+        }
+        
         bucket->state = Bucket::TOMBSTONE;
         --_count;
 
@@ -365,20 +400,24 @@ public:
     }
 
     void fill(ConstLRefOrValType<V> val) noexcept {
-        Bucket* data = access_data();
-        for (u32 i{0}; i < _capacity; ++i) {
-            data[i].value = val;
+        for (auto it{begin()}; it != end(); ++it) {
+            it->value = val;
         }
         _count = _capacity;
     }
 
     bool is_empty() const {
         if constexpr (USE_HANDLE) {
-            return _data.handle == INVALID_ALLOC_HANDLE && _capacity == 0 && _count == 0;
+            return _data.handle == INVALID_ALLOC_HANDLE || _capacity == 0 || _count == 0;
         } else {
-            return _data.ptr == nullptr && _capacity == 0 && _count == 0;
+            return _data.ptr == nullptr || _capacity == 0 || _count == 0;
         }
     }
+
+    constexpr u32 count() const noexcept { return _count; }
+    constexpr u32 size_in_bytes() const noexcept { return sizeof(Bucket) * _count; }
+    constexpr u32 capacity() const noexcept { return _capacity; }
+    constexpr u32 capacity_remain() const noexcept { return _capacity - _count; }
 
     constexpr PtrRandomAccessIterator<Bucket> begin() noexcept {
         return PtrRandomAccessIterator<Bucket>(access_data());
@@ -398,14 +437,11 @@ private:
 
     void resize_empty(u32 new_capacity) {
         SF_ASSERT_MSG(_allocator, "Should be valid pointer");
+        _capacity = new_capacity == 0 ? DEFAULT_INIT_CAPACITY : new_capacity;
 
-        _capacity = DEFAULT_INIT_CAPACITY;
-        while (_capacity < new_capacity) {
-            _capacity *= _config.grow_factor;
-        }
         if constexpr (USE_HANDLE) {
             _data.handle = _allocator->allocate_handle(_capacity * sizeof(Bucket), alignof(Bucket));
-            init_buffer_empty(_data.ptr, _capacity);
+            init_buffer_empty(access_data(), _capacity);
         } else {
             _data.ptr = static_cast<Bucket*>(_allocator->allocate(_capacity * sizeof(Bucket), alignof(Bucket)));
             init_buffer_empty(_data.ptr, _capacity);
