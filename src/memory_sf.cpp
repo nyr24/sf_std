@@ -8,18 +8,24 @@
 
 namespace sf {
 
-void* sf_mem_alloc(usize byte_size, u16 alignment) {
+void* sf_mem_alloc(usize byte_size, u16 alignment, bool zero) {
     if (alignment) {
         SF_ASSERT_MSG(is_power_of_two(alignment), "alignment should be a power of two");
-        void* ptr = ::operator new(byte_size, static_cast<std::align_val_t>(alignment), std::nothrow);
+        void* ptr = aligned_alloc(alignment, byte_size);
         if (!ptr) {
             panic("Out of memory");
         }
+        if (zero) {
+            sf_mem_zero(ptr, byte_size);
+        }
         return ptr;
     } else {
-        void* ptr = ::operator new(byte_size, std::nothrow);
+        void* ptr = malloc(byte_size);
         if (!ptr) {
             panic("Out of memory");
+        }
+        if (zero) {
+            sf_mem_zero(ptr, byte_size);
         }
         return ptr;
     }

@@ -5,7 +5,7 @@
 
 namespace sf {
 
-void* sf_mem_alloc(usize byte_size, u16 alignment = 0);
+void* sf_mem_alloc(usize byte_size, u16 alignment = 0, bool zero = false);
 void* sf_mem_realloc(void* ptr, usize byte_size);
 void  sf_mem_free(void* block, u16 alignment = 0);
 void  sf_mem_set(void* block, usize byte_size, i32 value);

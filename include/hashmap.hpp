@@ -297,7 +297,6 @@ public:
 
     // updates entry with the same key
     template<typename Key, typename Val>
-    requires SameTypes<K, Key> && SameTypes<V, Val>
     void put(Key&& key, Val&& val) noexcept {
         SF_ASSERT_MSG(_allocator, "Should be valid pointer");
         if (_count >= static_cast<u32>(_capacity * _config.load_factor)) {
@@ -307,7 +306,6 @@ public:
     }
 
     template<typename Key, typename Val>
-    requires SameTypes<K, Key> && SameTypes<V, Val>
     void put_without_realloc(Key&& key, Val&& val) noexcept {
         SF_ASSERT_MSG(_allocator, "Should be valid pointer");
         SF_ASSERT_MSG(_count < static_cast<u32>(_capacity * _config.load_factor), "Should have empty space");
@@ -316,7 +314,6 @@ public:
 
     // put without update
     template<typename Key, typename Val>
-    requires SameTypes<K, Key> && SameTypes<V, Val>
     bool put_if_empty(Key&& key, Val&& val) noexcept {
         SF_ASSERT_MSG(_allocator, "Should be valid pointer");
         if (_count >= static_cast<u32>(_capacity * _config.load_factor)) {
@@ -510,7 +507,6 @@ private:
     }
 
     template<typename Key, typename Val>
-    requires SameTypes<K, Key> && SameTypes<V, Val>
     void put_inner(Key&& key, Val&& val) noexcept {
         Bucket* data = access_data();
         u64 hash = hash_inner(key);
@@ -543,7 +539,6 @@ private:
 
     // used inside 'resize' for copying old entries
     template<typename Key, typename Val>
-    requires SameTypes<K, Key> && SameTypes<V, Val>
     void put_old_entry(Bucket* new_buffer, Key&& key, Val&& val) noexcept {
         u64 hash = hash_inner(key);
         u32 index = index_hash(hash);

@@ -28,7 +28,7 @@ target_compile_options(
     -DSF_DEBUG=1
   >
   $<$<CONFIG:Release>:
-    -O2
+    -O3
     -DSF_RELEASE=1
   >
 )

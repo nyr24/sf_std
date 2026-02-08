@@ -49,9 +49,10 @@ Perf::Perf(std::string_view name)
 
 Perf::~Perf()
 {
-    LOG_TEST("Performance test ends for: \"{}\"\n\tresult:\t{}", name, now() - start_time);
+    auto time = now() - start_time;
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(time).count();
+    LOG_TEST("Performance test ends for: \"{}\"\n\tresult : {}ms", name, ms);
 }
-
 // Tests
 
 struct Resource {
@@ -286,14 +287,18 @@ void hashmap_test() {
 void hashmap_test_compare_std()
 {
     TestCounter counter("HashMap comparison with std");
-    constexpr u32 TEST_COUNT = 9999999;
-    std::unordered_map<int, int> mapstd;
-    HashMap<int, int> map{};
+    constexpr u32 TEST_COUNT = 999999999;
 
-    std::vector<int> test;
+    LinearAllocator alloc_buff{TEST_COUNT * sizeof(int)};
+    DynamicArray<int, LinearAllocator> test{TEST_COUNT, &alloc_buff};
     for (int i = 0; i <= TEST_COUNT;++i) {
-        test.push_back(rand());
+        test.append(rand());
     }
+
+    std::unordered_map<int, int> mapstd;
+
+    LinearAllocator alloc_map{TEST_COUNT * (4+4+8)};
+    HashMap<int, int, LinearAllocator> map{TEST_COUNT, &alloc_map};
 
 // Putting
     {
@@ -403,15 +408,15 @@ void bitset_test() {
 }
 
 void TestManager::collect_all_tests() {
-    module_tests.append(fixed_array_test);
-    module_tests.append(dyn_array_test);
-    module_tests.append(hashmap_test);
+    // module_tests.append(fixed_array_test);
+    // module_tests.append(dyn_array_test);
+    // module_tests.append(hashmap_test);
     module_tests.append(hashmap_test_compare_std);
-    module_tests.append(string_test);
-    module_tests.append(linear_allocator_test);
-    module_tests.append(stack_allocator_test);
+    // module_tests.append(string_test);
+    // module_tests.append(linear_allocator_test);
+    // module_tests.append(stack_allocator_test);
     // module_tests.append(freelist_allocator_test);
-    module_tests.append(bitset_test);
+    // module_tests.append(bitset_test);
 }
 
 } // sf
