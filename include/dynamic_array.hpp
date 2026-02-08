@@ -379,13 +379,7 @@ public:
         if (new_count > _capacity) {
             grow(new_count);
         }
-        if (new_count > _count) {
-            if constexpr (std::is_trivial_v<T>) {
-                move_forward(new_count - _count);
-            } else {
-                move_forward_and_default_construct(new_count - _count);
-            }
-        }
+        _count = new_count;
     }
 
     void resize_exponent(u32 new_count) noexcept
@@ -404,14 +398,7 @@ public:
         if (!_allocator) {
             return;
         }
-        if (_count < _capacity) {
-            const u32 diff = _capacity - _count;
-            if constexpr (std::is_trivial_v<T>) {
-                move_forward(diff);
-            } else {
-                move_forward_and_default_construct(diff);
-            }
-        }
+        _count = _capacity;
     }
 
     void reserve_and_resize(u32 new_capacity, u32 new_count) noexcept
@@ -426,13 +413,7 @@ public:
             grow(new_capacity, true);
         }
 
-        if (new_count > _count) {
-            if constexpr (std::is_trivial_v<T>) {
-                move_forward(new_count - _count);
-            } else {
-                move_forward_and_default_construct(new_count - _count);
-            }
-        }
+        _count = new_count;
     }
 
     std::span<T> to_span(u32 start = 0, u32 len = 0) noexcept {
@@ -612,12 +593,12 @@ protected:
         construct_at(place_ptr, std::forward<Args>(args)...);
     }
 
-    T* move_forward_and_default_construct(u32 count) noexcept
-    {
-        T* place_ptr = move_ptr_forward(count);
-        default_construct_at(place_ptr);
-        return place_ptr;
-    }
+    // T* move_forward_and_default_construct(u32 count) noexcept
+    // {
+    //     T* place_ptr = move_ptr_forward(count);
+    //     default_construct_at(place_ptr);
+    //     return place_ptr;
+    // }
 
     void move_ptr_backwards(u32 move_count) noexcept
     {

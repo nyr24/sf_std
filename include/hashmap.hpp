@@ -8,7 +8,6 @@
 #include "memory_sf.hpp"
 #include "utility.hpp"
 #include "iterator.hpp"
-#include "optional.hpp"
 #include <cstring>
 #include <string_view>
 #include <type_traits>
@@ -39,7 +38,7 @@ u64 hashfn_default(ConstLRefOrValType<K> key) noexcept {
     u64 hash = OFFSET_BASIS;
 
     u8 bytes[sizeof(K)];
-    sf_mem_copy(bytes, &key, sizeof(K));
+    sf_mem_copy((void*)bytes, (void*)&key, sizeof(K));
 
     for (u32 i{0}; i < sizeof(K); ++i) {
         hash ^= bytes[i];
@@ -347,22 +346,21 @@ public:
         }
     }
 
-    Option<V*> get(ConstLRefOrValType<K> key) noexcept {
-        Option<Bucket*> maybe_bucket = find_bucket(key);
-        if (maybe_bucket.is_none()) {
-            return {None::VALUE};
+    V* get(ConstLRefOrValType<K> key) noexcept {
+        Bucket* maybe_bucket = find_bucket(key);
+        if (!maybe_bucket) {
+            return nullptr;
         }
 
-        return &maybe_bucket.unwrap_ref()->value;
+        return &maybe_bucket->value;
     }
 
     bool remove(ConstLRefOrValType<K> key) noexcept {
-        Option<Bucket*> maybe_bucket = find_bucket(key);
-        if (maybe_bucket.is_none()) {
+        Bucket* bucket = find_bucket(key);
+        if (!bucket) {
             return false;
         }
 
-        Bucket* bucket = maybe_bucket.unwrap_copy();
         if constexpr (std::is_destructible_v<K>) {
             bucket->key.~K();
         }
@@ -476,8 +474,7 @@ private:
         sf_mem_zero(new_buffer, capacity * sizeof(Bucket));
     }
 
-    // returns "some" if only state of bucket is "FILLED"
-    Option<Bucket*> find_bucket(ConstLRefOrValType<K> key) noexcept {
+    Bucket* find_bucket(ConstLRefOrValType<K> key) noexcept {
         u64 hash = hash_inner(key);
         u32 index = index_hash(hash);
         u32 search_count = 0;
@@ -486,24 +483,24 @@ private:
         for (u32 i = index; i < _capacity; ++i) {
             if (data[i].hash >= FIRST_VALID_HASH) {
                 if (data[i].hash == hash && _config.equal_fn(key, data[i].key)) {
-                    return {data + i};
+                    return data + i;
                 }
             } else if (data[i].hash == FREE_HASH) {
-                return {None::VALUE};
+                return nullptr;
             }
         }
 
         for (u32 i = 0; i < index; ++i) {
             if (data[i].hash >= FIRST_VALID_HASH) {
                 if (data[i].hash == hash && _config.equal_fn(key, data[i].key)) {
-                    return {data + i};
+                    return data + i;
                 }
             } else if (data[i].hash == FREE_HASH) {
-                return {None::VALUE};
+                return nullptr;
             }
         }
 
-        return {None::VALUE};
+        return nullptr;
     }
 
     template<typename Key, typename Val>

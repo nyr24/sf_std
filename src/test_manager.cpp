@@ -1,3 +1,4 @@
+#include <cstdlib>
 #ifdef SF_TESTS
 
 #include "bitset.hpp"
@@ -244,8 +245,8 @@ void hashmap_test() {
         auto age1 = map.get(key1);
         auto age2 = map.get(key2);
 
-        expect(age1.is_some(), counter);
-        expect(age2.is_some(), counter);
+        expect(age1, counter);
+        expect(age2, counter);
 
         auto del1 = map.remove(key1);
         auto del2 = map.remove(key1);
@@ -287,40 +288,39 @@ void hashmap_test() {
 void hashmap_test_compare_std()
 {
     TestCounter counter("HashMap comparison with std");
-    constexpr u32 TEST_COUNT = 999999999;
+    constexpr u32 TEST_COUNT = 100'000'000;
 
-    LinearAllocator alloc_buff{TEST_COUNT * sizeof(int)};
-    DynamicArray<int, LinearAllocator> test{TEST_COUNT, &alloc_buff};
-    for (int i = 0; i <= TEST_COUNT;++i) {
-        test.append(rand());
+    LinearAllocator alloc_buff{TEST_COUNT * sizeof(i32)};
+
+    DynamicArray<int, LinearAllocator> keys{TEST_COUNT, &alloc_buff};
+    for (int i = 0; i < TEST_COUNT;++i) {
+        keys.append(rand());
     }
 
-    std::unordered_map<int, int> mapstd;
-
-    LinearAllocator alloc_map{TEST_COUNT * (4+4+8)};
-    HashMap<int, int, LinearAllocator> map{TEST_COUNT, &alloc_map};
+    std::unordered_map<i32, i32> mapstd;
+    HashMap<i32, i32> map{};
 
 // Putting
     {
         Perf perf{ "My map put" };
-        for (int i = 0; i <= TEST_COUNT;++i) {
-            map.put(test[i], test[i]);
+        for (int i = 0; i < TEST_COUNT;++i) {
+            map.put(keys[i], i);
         }
     }
 
     {
         Perf perf{ "STD map put" };
-        for (int i = 0; i <= TEST_COUNT;++i) {
-            mapstd[test[i]] = test[i];
+        for (int i = 0; i < TEST_COUNT;++i) {
+            mapstd[keys[i]] = keys[i];
         }
     }
 
 // Getting
     {
         Perf perf{ "My map get" };
-        for (int i = 0; i <= TEST_COUNT;++i) {
-            i32 j = *map.get(test[i]).unwrap_copy();
-            if (j == 0) {
+        for (int i = 0; i < TEST_COUNT;++i) {
+            i32* j = map.get(keys[i]);
+            if (j && (*j == -999'999'999)) {
                 LOG_TEST("not important");
             }
         }
@@ -328,9 +328,9 @@ void hashmap_test_compare_std()
 
     {
         Perf perf{ "STD map get" };
-        for (int i = 0; i <= TEST_COUNT;++i) {
-            i32 j = mapstd[test[i]];
-            if (j == 0) {
+        for (int i = 0; i < TEST_COUNT;++i) {
+            i32& j = mapstd.at(keys[i]);
+            if (j == -999'999'999) {
                 LOG_TEST("not important");
             }
         }
@@ -339,21 +339,82 @@ void hashmap_test_compare_std()
 // Removing
     {
         Perf perf{ "My map remove" };
-        for (int i = 0; i <= TEST_COUNT;++i) {
-            map.remove(test[i]);
+        for (int i = 0; i < TEST_COUNT;++i) {
+            map.remove(keys[i]);
         }
     }
 
     {
         Perf perf{ "STD map remove" };
-        for (int i = 0; i <= TEST_COUNT;++i) {
-            mapstd.erase(test[i]);
+        for (int i = 0; i < TEST_COUNT;++i) {
+            mapstd.erase(keys[i]);
         }
     }
 
     printf("Capacity my: %d\n", map.count());
     printf("Capacity std: %zu\n", mapstd.size());
     printf("End\n");
+}
+
+
+static constexpr u32 MAX_STR_LEN = 32;
+
+void gen_str(FixedString<MAX_STR_LEN>& out_s) {
+    out_s.resize_to_capacity();
+    for (u32 i = 0; i < out_s.count(); ++i) {
+        out_s[i] = static_cast<char>(rand() % ('z' - 'a') + 'a');
+    }
+}
+
+FixedString<MAX_STR_LEN>& random_key(DynamicArray<FixedString<MAX_STR_LEN>, LinearAllocator>& keys) {
+    return keys[rand() % keys.count()];
+}
+
+void hashmap_test_strings()
+{
+    TestCounter counter("HashMap string test");
+    constexpr u32 KEY_COUNT = 50'000'000;
+
+    LinearAllocator alloc_buff{KEY_COUNT * sizeof(FixedString<MAX_STR_LEN>)};
+
+    DynamicArray<FixedString<MAX_STR_LEN>, LinearAllocator> keys{KEY_COUNT, &alloc_buff};
+    keys.resize_to_capacity();
+
+    for (int i = 0; i < KEY_COUNT;++i) {
+        gen_str(keys[i]);
+    }
+
+    HashMap<FixedString<MAX_STR_LEN>, int> map{};
+
+// Putting
+    {
+        Perf perf{ "My map put" };
+        for (int i = 0; i < KEY_COUNT;++i) {
+            map.put(keys[i], i);
+        }
+    }
+
+// Getting
+    {
+        Perf perf{ "My map get" };
+        for (int i = 0; i < KEY_COUNT;++i) {
+            i32* val = map.get(random_key(keys));
+            if (val && *val == 999'999'999) {
+                LOG_TEST("not important");
+            }
+        }
+    }
+
+// Removing
+    {
+        Perf perf{ "My map remove" };
+        for (int i = 0; i < KEY_COUNT;++i) {
+            map.remove(random_key(keys));
+        }
+    }
+
+    printf("Capacity my: %d\n", map.count());
+    printf("End Hashmap string test\n");
 }
 
 void bitset_test() {
@@ -408,15 +469,16 @@ void bitset_test() {
 }
 
 void TestManager::collect_all_tests() {
-    // module_tests.append(fixed_array_test);
-    // module_tests.append(dyn_array_test);
-    // module_tests.append(hashmap_test);
+    module_tests.append(fixed_array_test);
+    module_tests.append(dyn_array_test);
+    module_tests.append(hashmap_test);
     module_tests.append(hashmap_test_compare_std);
-    // module_tests.append(string_test);
-    // module_tests.append(linear_allocator_test);
-    // module_tests.append(stack_allocator_test);
+    module_tests.append(hashmap_test_strings);
+    module_tests.append(string_test);
+    module_tests.append(linear_allocator_test);
+    module_tests.append(stack_allocator_test);
+    module_tests.append(bitset_test);
     // module_tests.append(freelist_allocator_test);
-    // module_tests.append(bitset_test);
 }
 
 } // sf

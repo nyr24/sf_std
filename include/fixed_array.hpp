@@ -93,7 +93,7 @@ public:
     }
 
     friend bool operator==(const FixedArray<T, Capacity>& first, const FixedArray<T, Capacity>& second) noexcept {
-        return first._count == second._count && sf_mem_cmp(first._buffer, second._buffer, first._count * sizeof(T));
+        return first._count == second._count && sf_mem_cmp((void*)first._buffer, (void*)second._buffer, first._count * sizeof(T));
     }
 
     friend bool operator==(const FixedArray<T, Capacity>& arr, std::string_view sv) noexcept {
@@ -171,24 +171,14 @@ public:
     }
 
     constexpr void resize(u32 count) noexcept {
-        if (count > Capacity || count <= _count) {
+        if (count > Capacity) {
             return;
         }
-        u32 diff = count - _count;
-        if constexpr (std::is_trivial_v<T>) {
-            move_forward(diff);
-        } else {
-            move_forward_and_default_construct(diff);
-        }
+        _count = count;
     }
 
     constexpr void resize_to_capacity() noexcept {
-        u32 diff = Capacity - _count;
-        if constexpr (std::is_trivial_v<T>) {
-            move_forward(diff);
-        } else {
-            move_forward_and_default_construct(diff);
-        }
+        _count = Capacity;
     }
 
     constexpr void pop() noexcept {
@@ -323,12 +313,6 @@ protected:
     {
         T* place_ptr = move_forward_and_get_ptr(1);
         construct_at(place_ptr, std::forward<Args>(args)...);
-    }
-
-    constexpr void move_forward_and_default_construct(u32 count) noexcept
-    {
-        T* place_ptr = move_forward_and_get_ptr(count);
-        default_construct_at(place_ptr);
     }
 
     constexpr void move_ptr_backwards(u32 dealloc_count) noexcept
