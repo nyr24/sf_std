@@ -2,6 +2,7 @@
 
 #include "fixed_array.hpp"
 #include "defines.hpp"
+#include <iostream>
 #include <format>
 
 #define LOG_WARN_ENABLED 1
@@ -19,9 +20,6 @@
 #endif
 
 namespace sf {
-void platform_console_write(char* message_buff, u16 written_count, u8 color);
-void platform_console_write_error(char* message_buff, u16 written_count, u8 color);
-
 enum struct LogLevel : u8 {
     LOG_LEVEL_FATAL,
     LOG_LEVEL_ERROR,
@@ -50,16 +48,7 @@ void log_output(LogLevel log_level, std::format_string<Args...> fmt, Args&&... a
     char message_buff[OUTPUT_PRINT_BUFFER_CAPACITY] = {0};
     auto write_res1 = std::format_to_n(message_buff, OUTPUT_PRINT_BUFFER_CAPACITY, "{}", log_level_as_str[static_cast<usize>(log_level)]);
     auto write_res2 = std::format_to_n(message_buff + write_res1.size, OUTPUT_PRINT_BUFFER_CAPACITY - write_res1.size, fmt, std::forward<Args>(args)...);
-
-    switch (log_level) {
-        case LogLevel::LOG_LEVEL_FATAL:
-        case LogLevel::LOG_LEVEL_ERROR:
-            sf::platform_console_write_error(message_buff, static_cast<u16>(write_res2.size), static_cast<u8>(log_level));
-            break;
-        default:
-            sf::platform_console_write(message_buff, static_cast<u16>(write_res2.size), static_cast<u8>(log_level));
-            break;
-    }
+    std::cout << std::string_view(message_buff, write_res1.size + write_res2.size) << '\n';
 }
 
 } // sf

@@ -27,8 +27,8 @@ public:
     void* handle_to_ptr(usize handle) const noexcept;
     usize ptr_to_handle(void* ptr) const noexcept;
     void clear() noexcept;
-    void free(void* addr) noexcept {}
-    void free_handle(usize handle) noexcept {}
+    void free(void* addr, u16 alignment = 0) noexcept;
+    void free_handle(usize handle, u16 alignment = 0) noexcept;
 
     constexpr u8* begin() noexcept { return _buffer; }
     constexpr u8* data() noexcept { return _buffer; }

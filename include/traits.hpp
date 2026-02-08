@@ -26,8 +26,8 @@ concept AllocatorTrait = requires(A a, Args... args) {
     { a.ptr_to_handle(std::declval<T*>()) } -> std::same_as<usize>;
     { a.reallocate(std::declval<T*>(), std::declval<usize>(), std::declval<u16>()) } -> std::same_as<ReallocReturn>;
     { a.reallocate_handle(std::declval<usize>(), std::declval<usize>(), std::declval<u16>()) } -> std::same_as<ReallocReturnHandle>;
-    { a.free(std::declval<T*>()) } -> std::same_as<void>;
-    { a.free_handle(std::declval<usize>()) } -> std::same_as<void>;
+    { a.free(std::declval<T*>(), std::declval<u16>()) } -> std::same_as<void>;
+    { a.free_handle(std::declval<usize>(), std::declval<u16>()) } -> std::same_as<void>;
     { a.clear() } -> std::same_as<void>;
 };
 

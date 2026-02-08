@@ -132,4 +132,7 @@ void LinearAllocator::clear() noexcept
     _count = 0;
 }
 
+void LinearAllocator::free(void* addr, u16 alignment) noexcept {}
+void LinearAllocator::free_handle(usize handle, u16 alignment) noexcept {}
+
 } // sf

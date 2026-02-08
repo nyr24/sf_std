@@ -30,9 +30,9 @@ public:
     usize allocate_handle(usize size, u16 alignment) noexcept;
     ReallocReturn reallocate(void* addr, usize new_size, u16 alignment) noexcept;
     ReallocReturnHandle reallocate_handle(usize handle, usize new_size, u16 alignment) noexcept;
-    void clear() noexcept;
-    void free(void* addr) noexcept;
-    void free_handle(usize handle) noexcept;
+    void  clear() noexcept;
+    void  free(void* addr, u16 alignment = 0) noexcept;
+    void  free_handle(usize handle, u16 alignment = 0) noexcept;
     void* handle_to_ptr(usize handle) const noexcept;
     usize ptr_to_handle(void* ptr) const noexcept;
 

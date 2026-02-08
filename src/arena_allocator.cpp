@@ -12,6 +12,8 @@ namespace sf {
 
 ArenaAllocator::ArenaAllocator(GeneralPurposeAllocator& gpa)
     : regions(DEFAULT_REGIONS_INIT_CAPACITY, &gpa)
+    , curr_region_index{0}
+    , snapshot_count{0}
 {
 }
 
@@ -115,7 +117,7 @@ ArenaAllocator::Region* ArenaAllocator::find_region_for_addr(void* addr) {
 
 ArenaAllocator::FindSufficcientRegionReturn ArenaAllocator::find_sufficient_region_for_alloc(u32 alloc_size, u16 alignment) {
     FindSufficcientRegionReturn res;
-    u32 region_index{0};
+    u32 region_index = snapshot_count > 0 ? curr_region_index : 0;
     const u32 reg_cnt = regions.count();
 
     for (; region_index < reg_cnt; ++region_index) {
@@ -137,7 +139,10 @@ ArenaAllocator::FindSufficcientRegionReturn ArenaAllocator::find_sufficient_regi
         regions.append(Region{});
         res.region = regions.last_ptr();
         res.padding = 0;
+        region_index = regions.count() - 1;
     }
+
+    curr_region_index = region_index;
 
     return res;
 }
@@ -155,7 +160,7 @@ ReallocReturnHandle ArenaAllocator::reallocate_handle(usize handle, usize size, 
     return {INVALID_ALLOC_HANDLE, false};
 }
 
-void ArenaAllocator::free(void* addr)
+void ArenaAllocator::free(void* addr, u16 align) noexcept
 {
     Region* region = find_region_for_addr(addr);
     if (!region) {
@@ -229,10 +234,11 @@ void ArenaAllocator::rewind(Snapshot snapshot) {
         {
             regions[i].offset = 0;
         }
+        curr_region_index = snapshot.region_index;
     }
 }
 
-ArenaAllocator::Snapshot ArenaAllocator::make_snapshot() const {
+ArenaAllocator::Snapshot ArenaAllocator::make_snapshot() {
     Snapshot s;
     if (regions.count() > 0) {
         s.region_index = regions.count() - 1;
@@ -241,10 +247,11 @@ ArenaAllocator::Snapshot ArenaAllocator::make_snapshot() const {
         s.region_index = 0;
         s.region_offset = 0;
     }
+    snapshot_count++;
     return s;
 }
 
-void ArenaAllocator::free_handle(usize handle)
+void ArenaAllocator::free_handle(usize handle, u16 align) noexcept
 {
     SF_ASSERT_MSG(false, "You are using ArenaAllocator with handles");
 }

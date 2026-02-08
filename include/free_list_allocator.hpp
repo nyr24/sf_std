@@ -3,6 +3,7 @@
 #include "traits.hpp"
 #include "constants.hpp"
 #include "memory_sf.hpp"
+#include <algorithm>
 
 namespace sf {
 
@@ -20,11 +21,12 @@ struct FreeListNode {
 template<bool RESIZABLE = true>
 struct FreeList {
 private:
+    usize         _capacity;
     u8*           _buffer;
     FreeListNode* _head;
-    usize         _capacity;
 
 public:
+    static constexpr usize DEFAULT_CAPACITY = 1024;
     static constexpr usize MIN_ALLOC_SIZE = sizeof(FreeListNode);
 
     FreeList(usize capacity) noexcept;
@@ -36,8 +38,8 @@ public:
     usize ptr_to_handle(void* ptr) const noexcept;
     ReallocReturn reallocate(void* addr, usize new_size, u16 alignment) noexcept;
     ReallocReturnHandle reallocate_handle(usize handle, usize new_size, u16 alignment) noexcept;
-    void free(void* ptr) noexcept;
-    void free_handle(usize handle) noexcept;
+    void free(void* addr, u16 alignment = 0) noexcept;
+    void free_handle(usize handle, u16 alignment = 0) noexcept;
     void clear() noexcept;
     void insert_node(FreeListNode* prev, FreeListNode* node_to_insert) noexcept;
     void coallescense_nodes(FreeListNode* prev, FreeListNode* free_node) noexcept;
@@ -51,9 +53,9 @@ public:
 template<bool RESIZABLE>
 FreeList<RESIZABLE>
 ::FreeList(usize capacity) noexcept
-    : _buffer{ static_cast<u8*>(sf_mem_alloc(capacity)) }
+    : _capacity{ std::max(capacity, DEFAULT_CAPACITY) }
+    , _buffer{ static_cast<u8*>(sf_mem_alloc(_capacity)) }
     , _head{ reinterpret_cast<FreeListNode*>(_buffer) }
-    , _capacity{ capacity }
 {
     clear();
 }
@@ -153,7 +155,7 @@ ReallocReturnHandle FreeList<RESIZABLE>::reallocate_handle(usize handle, usize n
 }
 
 template<bool RESIZABLE>
-void FreeList<RESIZABLE>::free(void* block) noexcept {
+void FreeList<RESIZABLE>::free(void* block, u16 alignment) noexcept {
     if (!is_address_in_range(_buffer, _capacity, block)) {
         return;
     }
@@ -181,7 +183,7 @@ void FreeList<RESIZABLE>::free(void* block) noexcept {
 }
 
 template<bool RESIZABLE>
-void FreeList<RESIZABLE>::free_handle(usize handle) noexcept {
+void FreeList<RESIZABLE>::free_handle(usize handle, u16 alignment) noexcept {
     void* ptr = turn_handle_into_ptr(handle, _buffer);
     free(ptr);
 }

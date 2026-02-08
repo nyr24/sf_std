@@ -10,7 +10,7 @@ namespace sf {
 
 [[noreturn]] void panic(const char* message);
 [[noreturn]] void unreachable();
-u32 get_mem_page_size();
+constexpr u32 get_mem_page_size() { return 4096; }
 
 template<typename T>
 constexpr bool is_power_of_two(T x)  noexcept {

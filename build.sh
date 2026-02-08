@@ -39,6 +39,10 @@ for arg in "$@"; do
     echo "Using gcc compiler"
     COMPILER="g++"
     ;;
+  -test | --test)
+    echo "Compiling tests"
+    CMAKE_OPTS+=" -DSF_TESTS=1"
+    ;;
   *)
     echo "Unknown argument: $arg"
     ;;
@@ -72,10 +76,12 @@ if [ $BUILD_TYPE == "debug" ]; then
   echo "Building in debug mode"
   [ -d "$DEBUG_BUILD_DIR" ] || mkdir "$DEBUG_BUILD_DIR"
   cd "$DEBUG_BUILD_DIR"
+  $CMAKE_OPTS+=" -DSF_DEBUG=1"
   cmake $CMAKE_OPTS ../../ && cmake --build . $CMAKE_BUILD_OPTS
 else
   echo "Building in release mode"
   [ -d "$RELEASE_BUILD_DIR" ] || mkdir "$RELEASE_BUILD_DIR"
   cd "$RELEASE_BUILD_DIR"
+  $CMAKE_OPTS+=" -DSF_RELEASE=1"
   cmake $CMAKE_OPTS ../../ && cmake --build . $CMAKE_BUILD_OPTS
 fi

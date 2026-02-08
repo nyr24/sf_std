@@ -12,9 +12,11 @@ struct GeneralPurposeAllocator {
     usize ptr_to_handle(void* ptr) const noexcept;
     ReallocReturn reallocate(void* addr, u32 new_size, u16 alignment) noexcept;
     ReallocReturnHandle reallocate_handle(usize handle, u32 new_size, u16 alignment) noexcept;
-    void free(void* addr) noexcept;
-    void free_handle(usize handle) noexcept;
+    void free(void* addr, u16 alignment = 0) noexcept;
+    void free_handle(usize handle, u16 alignment = 0) noexcept;
     void clear() noexcept {}
 };
+
+GeneralPurposeAllocator* get_current_gpa();
 
 } // sf

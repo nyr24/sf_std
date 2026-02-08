@@ -1,5 +1,6 @@
 #pragma once
 
+#include "asserts_sf.hpp"
 #include "general_purpose_allocator.hpp"
 #include "traits.hpp"
 #include "constants.hpp"
@@ -8,9 +9,9 @@
 #include "utility.hpp"
 #include "iterator.hpp"
 #include "optional.hpp"
-#include "logger.hpp"
 #include <cstring>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 
 namespace sf {
@@ -27,23 +28,6 @@ u64 hashfn_default(ConstLRefOrValType<K> key) noexcept;
 template<typename K>
 bool equal_fn_default(ConstLRefOrValType<K> first, ConstLRefOrValType<K> second) {
     return first == second;
-};
-
-template<>
-inline bool equal_fn_default<std::string_view>(ConstLRefOrValType<std::string_view> first, ConstLRefOrValType<std::string_view> second) {
-    if (first.size() != second.size()) {
-        return false;
-    }
-    return sf_mem_cmp((void*)first.data(), (void*)second.data(), first.size());
-};
-
-template<>
-inline bool equal_fn_default<const char*>(ConstLRefOrValType<const char*> first, ConstLRefOrValType<const char*> second) {
-    const u32 first_len = strlen(first);
-    if (first_len != strlen(second)) {
-        return false;
-    }
-    return sf_mem_cmp((void*)first, (void*)second, first_len);
 };
 
 // fnv1a hash function
@@ -121,7 +105,7 @@ static HashMapConfig<K> get_default_config() {
     };
 }
 
-template<typename K, typename V, AllocatorTrait Allocator = GeneralPurposeAllocator, bool USE_HANDLE = true, u32 DEFAULT_INIT_CAPACITY = 8>
+template<typename K, typename V, AllocatorTrait Allocator = GeneralPurposeAllocator, bool USE_HANDLE = false, u32 DEFAULT_INIT_CAPACITY = 32>
 struct HashMap {
 public:
     using KeyType = K;
@@ -153,29 +137,23 @@ private:
 
 public:
     HashMap(const HashMapConfig<K>& config = get_default_config<K>())
-        : _allocator{nullptr}
-        , _capacity{0}
+        : _allocator{get_current_gpa()}
+        , _capacity{DEFAULT_INIT_CAPACITY}
         , _count{0}
         , _config{config}
     {
-        if constexpr (USE_HANDLE) {
-            _data.handle = INVALID_ALLOC_HANDLE;
-        } else {
-            _data.ptr = nullptr;
-        }
+        SF_ASSERT(config.grow_factor > 1.0f);
+        resize_empty(DEFAULT_INIT_CAPACITY);
     }
 
     HashMap(Allocator* allocator, const HashMapConfig<K>& config = get_default_config<K>())
         : _allocator{allocator}
-        , _capacity{0}
+        , _capacity{DEFAULT_INIT_CAPACITY}
         , _count{0}
         , _config{config}
     {
-        if constexpr (USE_HANDLE) {
-            _data.handle = INVALID_ALLOC_HANDLE;
-        } else {
-            _data.ptr = nullptr;
-        }
+        SF_ASSERT(config.grow_factor > 1.0f);
+        resize_empty(DEFAULT_INIT_CAPACITY);
     }
     
     HashMap(u32 prealloc_count, Allocator* allocator, const HashMapConfig<K>& config = get_default_config<K>())
@@ -184,7 +162,8 @@ public:
         , _count{0}
         , _config{config}
     {
-        resize_empty(prealloc_count);
+        SF_ASSERT(config.grow_factor > 1.0f);
+        resize_empty(std::max(prealloc_count, DEFAULT_INIT_CAPACITY));
     }
 
     HashMap(HashMap<K, V, Allocator>&& rhs) noexcept
@@ -255,7 +234,7 @@ public:
                         }
                     }
                 }
-                _allocator->free_handle(_data.handle);
+                _allocator->free_handle(_data.handle, alignof(Bucket));
                 _data.handle = INVALID_ALLOC_HANDLE;
             }
         } else {
@@ -272,7 +251,7 @@ public:
                         }
                     }
                 }
-                _allocator->free(_data.ptr);
+                _allocator->free(_data.ptr, alignof(Bucket));
                 _data.ptr = nullptr;
             }
         }
@@ -288,50 +267,18 @@ public:
     requires SameTypes<K, Key> && SameTypes<V, Val>
     void put(Key&& key, Val&& val) noexcept {
         SF_ASSERT_MSG(_allocator, "Should be valid pointer");
-        if (_count > static_cast<u32>(_capacity * _config.load_factor)) {
+        if (_count >= static_cast<u32>(_capacity * _config.load_factor)) {
             resize(_capacity * _config.grow_factor);
         }
-
-        Bucket* data = access_data();
-        u32 index = static_cast<u32>(_config.hash_fn(key)) % _capacity;
-
-        while (data[index].state == Bucket::FILLED && !_config.equal_fn(key, data[index].key)) {
-            ++index;
-            index %= _capacity;
-        }
-
-        if (data[index].state != Bucket::FILLED) {
-            data[index] = Bucket{ .key = std::forward<Key&&>(key), .value = std::forward<Val&&>(val), .state = Bucket::FILLED };
-            ++_count;
-        } else {
-            data[index].value = std::forward<Val&&>(val);
-        }
+        put_inner(std::forward<Key&&>(key), std::forward<Val&&>(val));
     }
 
-    // put without resize, if can
     template<typename Key, typename Val>
     requires SameTypes<K, Key> && SameTypes<V, Val>
-    bool put_assume_capacity(Key&& key, Val&& val) noexcept {
-        Bucket* data = access_data();
-        u32 index = static_cast<u32>(_config.hash_fn(key)) % _capacity;
-
-        while (data[index].state == Bucket::FILLED && !_config.equal_fn(key, data[index].key)) {
-            ++index;
-            index %= _capacity;
-        }
-
-        if (data[index].state != Bucket::FILLED) {
-            if (_count > static_cast<u32>(_capacity * _config.load_factor)) {
-                LOG_ERROR("Not enough capacity in HashMap");
-                return false;
-            }
-            data[index] = Bucket{ .key = std::forward<Key&&>(key), .value = std::forward<Val&&>(val), .state = Bucket::FILLED };
-            ++_count;
-        } else {
-            data[index].value = std::forward<Val&&>(val);
-        }
-
-        return true;
+    void put_without_realloc(Key&& key, Val&& val) noexcept {
+        SF_ASSERT_MSG(_allocator, "Should be valid pointer");
+        SF_ASSERT_MSG(_count < static_cast<u32>(_capacity * _config.load_factor), "Should have empty space");
+        put_inner(std::forward<Key&&>(key), std::forward<Val&&>(val));
     }
 
     // put without update
@@ -339,24 +286,33 @@ public:
     requires SameTypes<K, Key> && SameTypes<V, Val>
     bool put_if_empty(Key&& key, Val&& val) noexcept {
         SF_ASSERT_MSG(_allocator, "Should be valid pointer");
-        if (_count > static_cast<u32>(_capacity * _config.load_factor)) {
+        if (_count >= static_cast<u32>(_capacity * _config.load_factor)) {
             resize(_capacity * _config.grow_factor);
         }
 
         Bucket* data = access_data();
         u32 index = static_cast<u32>(_config.hash_fn(key)) % _capacity;
 
-        while (data[index].state == Bucket::FILLED && !_config.equal_fn(key, data[index].key)) {
-            ++index;
-            index %= _capacity;
+        for (u32 i = index; i < _capacity; ++i) {
+            if (data[i].state != Bucket::FILLED) {
+                ::new (&data[i]) Bucket{ .key = std::forward<Key&&>(key), .value = std::forward<Val&&>(val), .state = Bucket::FILLED };
+                ++_count;
+                return true;
+            }
+            else if (_config.equal_fn(key, data[i].key)) {
+                return false;
+            }
         }
 
-        if (data[index].state == Bucket::FILLED) {
-            return false;
-        } else {
-            ++_count;
-            data[index] = Bucket{ .key = std::forward<Key&&>(key), .value = std::forward<Val&&>(val), .state = Bucket::FILLED };
-            return true;
+        for (u32 i = 0; i < index; ++i) {
+            if (data[i].state != Bucket::FILLED) {
+                ::new (&data[i]) Bucket{ .key = std::forward<Key&&>(key), .value = std::forward<Val&&>(val), .state = Bucket::FILLED };
+                ++_count;
+                return true;
+            }
+            else if (_config.equal_fn(key, data[i].key)) {
+                return false;
+            }
         }
     }
 
@@ -460,29 +416,16 @@ private:
         }
 
         Bucket* old_buffer = access_data();
-        ReallocReturn realloc_res = _allocator->reallocate(static_cast<void*>(old_buffer), _capacity * sizeof(Bucket), alignof(Bucket));
-        Bucket* new_buffer = static_cast<Bucket*>(realloc_res.ptr);
-        if (realloc_res.should_mem_copy && old_buffer != new_buffer && old_capacity > 0) {
-            sf_mem_copy((void*)new_buffer, (void*)old_buffer, old_capacity * sizeof(Bucket));
-        }
+        Bucket* new_buffer = (Bucket*)_allocator->allocate(_capacity * sizeof(Bucket), alignof(Bucket));
+        init_buffer_empty(new_buffer, _capacity);
 
         // copy old nodes
-        for (u32 i{0}; i < _capacity; ++i) {
-            Bucket&& bucket{ std::move(new_buffer[i]) };
+        for (u32 i{0}; i < old_capacity; ++i) {
+            Bucket&& bucket{ std::move(old_buffer[i]) };
             if (bucket.state != Bucket::FILLED) {
-                bucket.state = Bucket::EMPTY;
                 continue;
             }
-
-            u64 hash = _config.hash_fn(bucket.key);
-            u32 new_index = hash % _capacity;
-
-            while (new_buffer[new_index].state == Bucket::FILLED) {
-                ++new_index;
-                new_index %= _capacity;
-            }
-
-            new_buffer[new_index] = std::move(bucket);
+            put_old_entry(new_buffer, std::forward<K&&>(bucket.key), std::forward<V&&>(bucket.value));
         }
 
         if constexpr (USE_HANDLE) {
@@ -490,6 +433,8 @@ private:
         } else {
             _data.ptr = new_buffer;
         }
+
+        _allocator->free(old_buffer, alignof(Bucket));
     }
 
     void init_buffer_empty(Bucket* new_buffer, u32 capacity) {
@@ -506,17 +451,79 @@ private:
         u32 search_count = 0;
 
         Bucket* data = access_data();
-        while (data[index].state == Bucket::FILLED && !_config.equal_fn(key, data[index].key) && search_count < _capacity) {
-            ++index;
-            index %= _capacity;
-            ++search_count;
+        for (u32 i = index; i < _capacity; ++i) {
+            if (data[i].state == Bucket::EMPTY) {
+                return {None::VALUE};
+            }
+            if (data[i].state == Bucket::FILLED && _config.equal_fn(key, data[i].key)) {
+                return {data + i};
+            }
         }
 
-        if (data[index].state == Bucket::FILLED && search_count < _capacity) {
-            return &data[index];
-        } else {
-            return None::VALUE;
+        for (u32 i = 0; i < index; ++i) {
+            if (data[i].state == Bucket::EMPTY) {
+                return {None::VALUE};
+            }
+            if (data[i].state == Bucket::FILLED && _config.equal_fn(key, data[i].key)) {
+                return {data + i};
+            }
         }
+
+        return {None::VALUE};
+    }
+
+    template<typename Key, typename Val>
+    requires SameTypes<K, Key> && SameTypes<V, Val>
+    void put_inner(Key&& key, Val&& val) noexcept {
+        Bucket* data = access_data();
+        u32 index = static_cast<u32>(_config.hash_fn(key)) % _capacity;
+
+        for (u32 i = index; i < _capacity; ++i) {
+            if (data[i].state != Bucket::FILLED) {
+                ::new (&data[i]) Bucket{ .key = std::forward<Key&&>(key), .value = std::forward<Val&&>(val), .state = Bucket::FILLED };
+                ++_count;
+                return;
+            }
+            else if (_config.equal_fn(key, data[i].key)) {
+                data[i].value = std::forward<Val&&>(val);
+                return;
+            }
+        }
+
+        for (u32 i = 0; i < index; ++i) {
+            if (data[i].state != Bucket::FILLED) {
+                ::new (&data[i]) Bucket{ .key = std::forward<Key&&>(key), .value = std::forward<Val&&>(val), .state = Bucket::FILLED };
+                ++_count;
+                return;
+            }
+            else if (_config.equal_fn(key, data[i].key)) {
+                data[i].value = std::forward<Val&&>(val);
+                return;
+            }
+        }
+    }
+
+    // used inside 'resize' for copying old entries
+    template<typename Key, typename Val>
+    requires SameTypes<K, Key> && SameTypes<V, Val>
+    void put_old_entry(Bucket* new_buffer, Key&& key, Val&& val) noexcept {
+        u32 index = static_cast<u32>(_config.hash_fn(key)) % _capacity;
+
+        for (u32 i = index; i < _capacity; ++i) {
+            if (new_buffer[i].state != Bucket::FILLED) {
+                ::new (&new_buffer[i]) Bucket{ .key = std::forward<Key&&>(key), .value = std::forward<Val&&>(val), .state = Bucket::FILLED };
+                return;
+            }
+        }
+
+        for (u32 i = 0; i < index; ++i) {
+            if (new_buffer[i].state != Bucket::FILLED) {
+                ::new (&new_buffer[i]) Bucket{ .key = std::forward<Key&&>(key), .value = std::forward<Val&&>(val), .state = Bucket::FILLED };
+                return;
+            }
+        }
+
+        SF_ASSERT_MSG(false, "Should not get here");
     }
 };
 

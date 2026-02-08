@@ -7,6 +7,13 @@
 
 namespace sf {
 
+static GeneralPurposeAllocator gpa;
+
+GeneralPurposeAllocator* get_current_gpa()
+{
+    return &gpa;
+}
+
 void* GeneralPurposeAllocator::allocate(u32 size, u16 alignment) noexcept {
     return sf_mem_alloc(size, alignment);
 }
@@ -15,8 +22,8 @@ ReallocReturn GeneralPurposeAllocator::reallocate(void* addr, u32 new_size, u16 
     return {sf_mem_realloc(addr, new_size), false};
 }
 
-void GeneralPurposeAllocator::free(void* addr) noexcept {
-    sf_mem_free(addr);
+void GeneralPurposeAllocator::free(void* addr, u16 alignment) noexcept {
+    sf_mem_free(addr, alignment);
     addr = nullptr;
 }
 
@@ -40,7 +47,7 @@ ReallocReturnHandle GeneralPurposeAllocator::reallocate_handle(usize handle, u32
     return {INVALID_ALLOC_HANDLE, false};
 }
 
-void GeneralPurposeAllocator::free_handle(usize handle) noexcept {
+void GeneralPurposeAllocator::free_handle(usize handle, u16 align) noexcept {
     SF_ASSERT_MSG(false, "You are using GeneralPurposeAllocator with handles");
 }
 

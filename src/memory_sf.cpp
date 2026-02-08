@@ -1,6 +1,6 @@
 #include "defines.hpp"
 #include "memory_sf.hpp"
-#include "platform.hpp"
+#include "asserts_sf.hpp"
 #include "utility.hpp"
 #include <cstdlib>
 #include <new>
@@ -9,11 +9,20 @@
 namespace sf {
 
 void* sf_mem_alloc(usize byte_size, u16 alignment) {
-    void* block = platform_mem_alloc(byte_size, alignment);
-    if (!block) {
-        panic("Ending the program");
+    if (alignment) {
+        SF_ASSERT_MSG(is_power_of_two(alignment), "alignment should be a power of two");
+        void* ptr = ::operator new(byte_size, static_cast<std::align_val_t>(alignment), std::nothrow);
+        if (!ptr) {
+            panic("Out of memory");
+        }
+        return ptr;
+    } else {
+        void* ptr = ::operator new(byte_size, std::nothrow);
+        if (!ptr) {
+            panic("Out of memory");
+        }
+        return ptr;
     }
-    return block;
 }
 
 void* sf_mem_realloc(void* ptr, usize byte_size) {

@@ -147,7 +147,7 @@ void StackAllocator::clear() noexcept
     _count = 0;
 }
 
-void StackAllocator::free(void* addr) noexcept {
+void StackAllocator::free(void* addr, u16 align) noexcept {
     if (!is_address_in_range(_buffer, _capacity, addr)) {
         return;
     }
@@ -188,7 +188,7 @@ usize StackAllocator::ptr_to_handle(void* ptr) const noexcept {
     return turn_ptr_into_handle(ptr, _buffer);
 }
 
-void StackAllocator::free_handle(usize handle) noexcept {
+void StackAllocator::free_handle(usize handle, u16 align) noexcept {
     if (handle == INVALID_ALLOC_HANDLE) {
         return;
     }

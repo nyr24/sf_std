@@ -31,6 +31,8 @@ public:
     };
 private:
     DynamicArray<Region, GeneralPurposeAllocator, false> regions;
+    u32 curr_region_index;
+    u32 snapshot_count;
 public:
     ArenaAllocator(GeneralPurposeAllocator& gpa);
     ~ArenaAllocator();
@@ -40,12 +42,12 @@ public:
     ReallocReturnHandle reallocate_handle(usize handle, usize size, u16 alignment);
     void* handle_to_ptr(usize handle) const;
     usize ptr_to_handle(void* ptr) const;
-    void  free(void* addr);
-    void  free_handle(usize hanlde);
+    void  free(void* addr, u16 alignment = 0) noexcept;
+    void  free_handle(usize handle, u16 alignment = 0) noexcept;
     void  reserve(usize capacity);
     void  clear();
     void  rewind(Snapshot snapshot);
-    Snapshot make_snapshot() const;
+    Snapshot make_snapshot();
 private:
     struct FindSufficcientRegionReturn {
         Region* region;
