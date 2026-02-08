@@ -29,6 +29,7 @@ concept AllocatorTrait = requires(A a, Args... args) {
     { a.free(std::declval<T*>(), std::declval<u16>()) } -> std::same_as<void>;
     { a.free_handle(std::declval<usize>(), std::declval<u16>()) } -> std::same_as<void>;
     { a.clear() } -> std::same_as<void>;
+    { a.using_handle() } -> std::same_as<bool>;
 };
 
 } // sf

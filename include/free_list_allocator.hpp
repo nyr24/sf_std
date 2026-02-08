@@ -48,6 +48,7 @@ public:
     void resize(usize new_capacity) noexcept;
     constexpr u8* begin() noexcept { return _buffer; }
     constexpr usize total_size() noexcept { return _capacity; };
+    static constexpr bool using_handle() noexcept { return true; }
 };
 
 template<bool RESIZABLE>

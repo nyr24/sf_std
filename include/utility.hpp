@@ -17,6 +17,14 @@ constexpr bool is_power_of_two(T x)  noexcept {
     return (x & (x-1)) == 0;
 }
 
+template<typename T>
+constexpr T next_power_of_2(T x)
+{
+	T y = 1;
+	while (y < x) y += y;
+	return y;
+}
+
 // TODO: make it work
 template<typename T, typename CharT>
 concept HasFormatter = requires(std::format_parse_context ctx) {

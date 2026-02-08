@@ -30,7 +30,7 @@ public:
         u32 prev_offset;
     };
 private:
-    DynamicArray<Region, GeneralPurposeAllocator, false> regions;
+    DynamicArray<Region, GeneralPurposeAllocator> regions;
     u32 curr_region_index;
     u32 snapshot_count;
 public:
@@ -48,6 +48,7 @@ public:
     void  clear();
     void  rewind(Snapshot snapshot);
     Snapshot make_snapshot();
+    static constexpr bool using_handle() noexcept { return false; }
 private:
     struct FindSufficcientRegionReturn {
         Region* region;

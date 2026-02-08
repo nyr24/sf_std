@@ -19,7 +19,7 @@
 namespace sf {
 
 // _capacity and _len are in elements, not bytes
-template<typename T, AllocatorTrait Allocator = GeneralPurposeAllocator, bool USE_HANDLE = true, f32 GROW_FACTOR = 2.0f, u32 DEFAULT_CAPACITY = 8>
+template<typename T, AllocatorTrait Allocator = GeneralPurposeAllocator, f32 GROW_FACTOR = 2.0f, u32 DEFAULT_CAPACITY = 8>
 struct DynamicArray {
 protected:
     union Data {
@@ -37,6 +37,8 @@ public:
     using PointerType   = T*;
 
 public:
+    static constexpr bool USE_HANDLE{ Allocator::using_handle() };
+    
     DynamicArray() noexcept
         : _allocator{nullptr}
         , _capacity{0}
@@ -482,8 +484,8 @@ public:
     }
 
     friend bool operator==(
-        const DynamicArray<T, Allocator, USE_HANDLE, GROW_FACTOR, DEFAULT_CAPACITY>& first,
-        const DynamicArray<T, Allocator, USE_HANDLE, GROW_FACTOR, DEFAULT_CAPACITY>& second) noexcept
+        const DynamicArray<T, Allocator, GROW_FACTOR, DEFAULT_CAPACITY>& first,
+        const DynamicArray<T, Allocator, GROW_FACTOR, DEFAULT_CAPACITY>& second) noexcept
     {
         return first._count == second._count && sf_mem_cmp(first.access_data(), second.access_data(), first._count * sizeof(T));
     }
@@ -634,7 +636,7 @@ protected:
 }; // DynamicArray
 
 template<AllocatorTrait Allocator, bool USE_HANDLE = true, f32 GROW_FACTOR = 2.0f, u32 DEFAULT_CAPACITY = 8>
-struct String : public DynamicArray<char, Allocator, USE_HANDLE, GROW_FACTOR, DEFAULT_CAPACITY>
+struct String : public DynamicArray<char, Allocator, GROW_FACTOR, DEFAULT_CAPACITY>
 {
     using DynamicArray<char, Allocator>::DynamicArray;
     

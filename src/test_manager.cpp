@@ -49,7 +49,7 @@ Perf::Perf(std::string_view name)
 
 Perf::~Perf()
 {
-    LOG_TEST("Performance test ends for: \"{}\" with result {}", name, now() - start_time);
+    LOG_TEST("Performance test ends for: \"{}\"\n\tresult:\t{}", name, now() - start_time);
 }
 
 // Tests
@@ -135,7 +135,7 @@ void fixed_array_test() {
 void dyn_array_test() {
     TestCounter counter{"DynamicArray"};
     GeneralPurposeAllocator gpa{};
-    DynamicArray<Resource, GeneralPurposeAllocator, false> arr{&gpa};
+    DynamicArray<Resource, GeneralPurposeAllocator> arr{&gpa};
 
     for (u32 i{0}; i < 20; ++i) {
         arr.append_emplace(new int(i));
@@ -171,15 +171,15 @@ void stack_allocator_test() {
     StackAllocator alloc{500};
 
     {
-        DynamicArray<u8, StackAllocator, true> arr(&alloc);
+        DynamicArray<u8, StackAllocator> arr(&alloc);
         arr.reserve(200);
         expect(alloc.count() >= 200 * sizeof(u8) + sizeof(StackAllocatorHeader), counter);
 
-        DynamicArray<u8, StackAllocator, true> arr2(&alloc);
+        DynamicArray<u8, StackAllocator> arr2(&alloc);
         arr2.reserve(200);
         expect(alloc.count() >= 400 * sizeof(u8) + sizeof(StackAllocatorHeader), counter);
 
-        DynamicArray<u8, StackAllocator, true> arr3(&alloc);
+        DynamicArray<u8, StackAllocator> arr3(&alloc);
         arr3.reserve(300);
         expect(alloc.count() >= 700 * sizeof(u8) + sizeof(StackAllocatorHeader), counter);
     }
@@ -188,14 +188,14 @@ void stack_allocator_test() {
 void freelist_allocator_test() {
     FreeList alloc{600};
 
-    DynamicArray<u8, FreeList<true>, true> arr1(512, &alloc);
+    DynamicArray<u8, FreeList<true>> arr1(512, &alloc);
     for (usize i{0}; i < 256; ++i) {
         arr1.append(i);
     }
     LOG_TEST("random item: {}", arr1[rand() % arr1.count()]);
     arr1.resize(600);
 
-    DynamicArray<u8, FreeList<true>, true> arr2(512, &alloc);
+    DynamicArray<u8, FreeList<true>> arr2(512, &alloc);
     for (usize i{256}; i < 512; ++i) {
         arr2.append(i);
     }
@@ -211,15 +211,15 @@ void linear_allocator_test() {
     LinearAllocator alloc{500};
 
     {
-        DynamicArray<u8, LinearAllocator, true> arr(&alloc);
+        DynamicArray<u8, LinearAllocator> arr(&alloc);
         arr.reserve(200);
         expect(alloc.count() >= 200 * sizeof(u8), counter);
 
-        DynamicArray<u8, LinearAllocator, true> arr2(&alloc);
+        DynamicArray<u8, LinearAllocator> arr2(&alloc);
         arr2.reserve(200);
         expect(alloc.count() >= 400 * sizeof(u8), counter);
 
-        DynamicArray<u8, LinearAllocator, true> arr3(&alloc);
+        DynamicArray<u8, LinearAllocator> arr3(&alloc);
         arr3.reserve(300);
         expect(alloc.count() >= 700 * sizeof(u8), counter);
     }
@@ -286,7 +286,7 @@ void hashmap_test() {
 void hashmap_test_compare_std()
 {
     TestCounter counter("HashMap comparison with std");
-    constexpr u32 TEST_COUNT = 999999;
+    constexpr u32 TEST_COUNT = 9999999;
     std::unordered_map<int, int> mapstd;
     HashMap<int, int> map{};
 
@@ -299,16 +299,14 @@ void hashmap_test_compare_std()
     {
         Perf perf{ "My map put" };
         for (int i = 0; i <= TEST_COUNT;++i) {
-            auto val = rand();
-            map.put(test[i], val);
+            map.put(test[i], test[i]);
         }
     }
 
     {
         Perf perf{ "STD map put" };
         for (int i = 0; i <= TEST_COUNT;++i) {
-            auto val = rand();
-            mapstd[test[i]] = val;
+            mapstd[test[i]] = test[i];
         }
     }
 
@@ -316,14 +314,20 @@ void hashmap_test_compare_std()
     {
         Perf perf{ "My map get" };
         for (int i = 0; i <= TEST_COUNT;++i) {
-            map.get(test[i]);
+            i32 j = *map.get(test[i]).unwrap_copy();
+            if (j == 0) {
+                LOG_TEST("not important");
+            }
         }
     }
 
     {
         Perf perf{ "STD map get" };
         for (int i = 0; i <= TEST_COUNT;++i) {
-            mapstd.erase(test[i]);
+            i32 j = mapstd[test[i]];
+            if (j == 0) {
+                LOG_TEST("not important");
+            }
         }
     }
     

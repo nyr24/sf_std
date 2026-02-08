@@ -39,6 +39,7 @@ public:
     const u8* begin() const noexcept { return _buffer; }
     const u8* data() const noexcept { return _buffer; }
     const u8* end() const noexcept { return _buffer + _count; }
+    static constexpr bool using_handle() noexcept { return true; }
 
 private:
     void resize(usize new_capacity) noexcept;

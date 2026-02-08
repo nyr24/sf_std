@@ -105,22 +105,16 @@ static HashMapConfig<K> get_default_config() {
     };
 }
 
-template<typename K, typename V, AllocatorTrait Allocator = GeneralPurposeAllocator, bool USE_HANDLE = false, u32 DEFAULT_INIT_CAPACITY = 32>
+template<typename K, typename V, AllocatorTrait Allocator = GeneralPurposeAllocator, u32 DEFAULT_INIT_CAPACITY = 32>
 struct HashMap {
 public:
     using KeyType = K;
     using ValueType = V;
 
     struct Bucket {
-        enum BucketState : u8 {
-            EMPTY,
-            FILLED,
-            TOMBSTONE
-        };
-
-        K key;
-        V value;
-        BucketState state;
+        K   key;
+        V   value;
+        u64 hash;
     };
 
     union Data {
@@ -134,8 +128,12 @@ private:
     u32                 _capacity;
     u32                 _count;
     HashMapConfig<K>    _config;
+public: 
+    static constexpr u64 FREE_HASH = 0;
+    static constexpr u64 TOMBSTONE_HASH = 1;
+    static constexpr u64 FIRST_VALID_HASH = 2;
+    static constexpr bool USE_HANDLE = Allocator::using_handle();
 
-public:
     HashMap(const HashMapConfig<K>& config = get_default_config<K>())
         : _allocator{get_current_gpa()}
         , _capacity{DEFAULT_INIT_CAPACITY}
@@ -158,12 +156,12 @@ public:
     
     HashMap(u32 prealloc_count, Allocator* allocator, const HashMapConfig<K>& config = get_default_config<K>())
         : _allocator{allocator}
-        , _capacity{0}
+        , _capacity{next_power_of_2(prealloc_count)}
         , _count{0}
         , _config{config}
     {
         SF_ASSERT(config.grow_factor > 1.0f);
-        resize_empty(std::max(prealloc_count, DEFAULT_INIT_CAPACITY));
+        resize_empty(prealloc_count);
     }
 
     HashMap(HashMap<K, V, Allocator>&& rhs) noexcept
@@ -224,7 +222,7 @@ public:
             if (_data.handle != INVALID_ALLOC_HANDLE) {
                 if constexpr (std::is_destructible_v<K> || std::is_destructible_v<V>) {
                     for (auto it{begin()}; it != end(); ++it) {
-                        if (it->state == Bucket::FILLED) {
+                        if (it->hash >= FIRST_VALID_HASH) {
                             if constexpr (std::is_destructible_v<K>) {
                                 it->key.~K();
                             }
@@ -241,7 +239,7 @@ public:
             if (_data.ptr) {
                 if constexpr (std::is_destructible_v<K> || std::is_destructible_v<V>) {
                     for (auto it{begin()}; it != end(); ++it) {
-                        if (it->state == Bucket::FILLED) {
+                        if (it->hash >= FIRST_VALID_HASH) {
                             if constexpr (std::is_destructible_v<K>) {
                                 it->key.~K();
                             }
@@ -255,7 +253,42 @@ public:
                 _data.ptr = nullptr;
             }
         }
+        _count = 0;
+        _capacity = 0;
     }
+
+    void clear() noexcept {
+        if constexpr (USE_HANDLE) {
+            if (_data.handle != INVALID_ALLOC_HANDLE) {
+                for (auto it{begin()}; it != end(); ++it) {
+                    if (it->hash >= FIRST_VALID_HASH) {
+                        it->hash = FREE_HASH;
+                        if constexpr (std::is_destructible_v<K>) {
+                            it->key.~K();
+                        }
+                        if constexpr (std::is_destructible_v<V>) {
+                            it->value.~V();
+                        }
+                    }
+                }
+            }
+        } else {
+            if (_data.ptr) {
+                for (auto it{begin()}; it != end(); ++it) {
+                    if (it->hash >= FIRST_VALID_HASH) {
+                        it->hash = FREE_HASH;
+                        if constexpr (std::is_destructible_v<K>) {
+                            it->key.~K();
+                        }
+                        if constexpr (std::is_destructible_v<V>) {
+                            it->value.~V();
+                        }
+                    }
+                }
+            }
+        }
+        _count = 0;
+   }
 
     void set_allocator(Allocator* alloc) noexcept {
         SF_ASSERT_MSG(alloc, "Should be valid pointer");
@@ -291,26 +324,27 @@ public:
         }
 
         Bucket* data = access_data();
-        u32 index = static_cast<u32>(_config.hash_fn(key)) % _capacity;
+        u64 hash = hash_inner();
+        u32 index = index_hash(hash);
 
         for (u32 i = index; i < _capacity; ++i) {
-            if (data[i].state != Bucket::FILLED) {
-                ::new (&data[i]) Bucket{ .key = std::forward<Key&&>(key), .value = std::forward<Val&&>(val), .state = Bucket::FILLED };
+            if (data[i].hash < FIRST_VALID_HASH) {
+                ::new (&data[i]) Bucket{ .key = std::forward<Key&&>(key), .value = std::forward<Val&&>(val), .hash = hash };
                 ++_count;
                 return true;
             }
-            else if (_config.equal_fn(key, data[i].key)) {
+            else if (hash == data[i].hash && _config.equal_fn(key, data[i].key)) {
                 return false;
             }
         }
 
         for (u32 i = 0; i < index; ++i) {
-            if (data[i].state != Bucket::FILLED) {
-                ::new (&data[i]) Bucket{ .key = std::forward<Key&&>(key), .value = std::forward<Val&&>(val), .state = Bucket::FILLED };
+            if (data[i].hash < FIRST_VALID_HASH) {
+                ::new (&data[i]) Bucket{ .key = std::forward<Key&&>(key), .value = std::forward<Val&&>(val), .hash = hash };
                 ++_count;
                 return true;
             }
-            else if (_config.equal_fn(key, data[i].key)) {
+            else if (hash == data[i].hash && _config.equal_fn(key, data[i].key)) {
                 return false;
             }
         }
@@ -339,7 +373,7 @@ public:
             bucket->value.~V();
         }
         
-        bucket->state = Bucket::TOMBSTONE;
+        bucket->hash = FREE_HASH;
         --_count;
 
         return true;
@@ -422,7 +456,7 @@ private:
         // copy old nodes
         for (u32 i{0}; i < old_capacity; ++i) {
             Bucket&& bucket{ std::move(old_buffer[i]) };
-            if (bucket.state != Bucket::FILLED) {
+            if (bucket.hash < FIRST_VALID_HASH) {
                 continue;
             }
             put_old_entry(new_buffer, std::forward<K&&>(bucket.key), std::forward<V&&>(bucket.value));
@@ -447,25 +481,28 @@ private:
 
     // returns "some" if only state of bucket is "FILLED"
     Option<Bucket*> find_bucket(ConstLRefOrValType<K> key) noexcept {
-        u32 index = static_cast<u32>(_config.hash_fn(key)) % _capacity;
+        u64 hash = hash_inner(key);
+        u32 index = index_hash(hash);
         u32 search_count = 0;
 
         Bucket* data = access_data();
         for (u32 i = index; i < _capacity; ++i) {
-            if (data[i].state == Bucket::EMPTY) {
+            if (data[i].hash >= FIRST_VALID_HASH) {
+                if (data[i].hash == hash && _config.equal_fn(key, data[i].key)) {
+                    return {data + i};
+                }
+            } else if (data[i].hash == FREE_HASH) {
                 return {None::VALUE};
-            }
-            if (data[i].state == Bucket::FILLED && _config.equal_fn(key, data[i].key)) {
-                return {data + i};
             }
         }
 
         for (u32 i = 0; i < index; ++i) {
-            if (data[i].state == Bucket::EMPTY) {
+            if (data[i].hash >= FIRST_VALID_HASH) {
+                if (data[i].hash == hash && _config.equal_fn(key, data[i].key)) {
+                    return {data + i};
+                }
+            } else if (data[i].hash == FREE_HASH) {
                 return {None::VALUE};
-            }
-            if (data[i].state == Bucket::FILLED && _config.equal_fn(key, data[i].key)) {
-                return {data + i};
             }
         }
 
@@ -476,27 +513,28 @@ private:
     requires SameTypes<K, Key> && SameTypes<V, Val>
     void put_inner(Key&& key, Val&& val) noexcept {
         Bucket* data = access_data();
-        u32 index = static_cast<u32>(_config.hash_fn(key)) % _capacity;
+        u64 hash = hash_inner(key);
+        u32 index = index_hash(hash);
 
         for (u32 i = index; i < _capacity; ++i) {
-            if (data[i].state != Bucket::FILLED) {
-                ::new (&data[i]) Bucket{ .key = std::forward<Key&&>(key), .value = std::forward<Val&&>(val), .state = Bucket::FILLED };
+            if (data[i].hash < FIRST_VALID_HASH) {
+                ::new (&data[i]) Bucket{ .key = std::forward<Key&&>(key), .value = std::forward<Val&&>(val), .hash = hash };
                 ++_count;
                 return;
             }
-            else if (_config.equal_fn(key, data[i].key)) {
+            else if (hash == data[i].hash && _config.equal_fn(key, data[i].key)) {
                 data[i].value = std::forward<Val&&>(val);
                 return;
             }
         }
 
         for (u32 i = 0; i < index; ++i) {
-            if (data[i].state != Bucket::FILLED) {
-                ::new (&data[i]) Bucket{ .key = std::forward<Key&&>(key), .value = std::forward<Val&&>(val), .state = Bucket::FILLED };
+            if (data[i].hash < FIRST_VALID_HASH) {
+                ::new (&data[i]) Bucket{ .key = std::forward<Key&&>(key), .value = std::forward<Val&&>(val), .hash = hash };
                 ++_count;
                 return;
             }
-            else if (_config.equal_fn(key, data[i].key)) {
+            else if (hash == data[i].hash && _config.equal_fn(key, data[i].key)) {
                 data[i].value = std::forward<Val&&>(val);
                 return;
             }
@@ -507,23 +545,32 @@ private:
     template<typename Key, typename Val>
     requires SameTypes<K, Key> && SameTypes<V, Val>
     void put_old_entry(Bucket* new_buffer, Key&& key, Val&& val) noexcept {
-        u32 index = static_cast<u32>(_config.hash_fn(key)) % _capacity;
+        u64 hash = hash_inner(key);
+        u32 index = index_hash(hash);
 
         for (u32 i = index; i < _capacity; ++i) {
-            if (new_buffer[i].state != Bucket::FILLED) {
-                ::new (&new_buffer[i]) Bucket{ .key = std::forward<Key&&>(key), .value = std::forward<Val&&>(val), .state = Bucket::FILLED };
+            if (new_buffer[i].hash < FIRST_VALID_HASH) {
+                ::new (&new_buffer[i]) Bucket{ .key = std::forward<Key&&>(key), .value = std::forward<Val&&>(val), .hash = hash };
                 return;
             }
         }
 
         for (u32 i = 0; i < index; ++i) {
-            if (new_buffer[i].state != Bucket::FILLED) {
-                ::new (&new_buffer[i]) Bucket{ .key = std::forward<Key&&>(key), .value = std::forward<Val&&>(val), .state = Bucket::FILLED };
+            if (new_buffer[i].hash < FIRST_VALID_HASH) {
+                ::new (&new_buffer[i]) Bucket{ .key = std::forward<Key&&>(key), .value = std::forward<Val&&>(val), .hash = hash };
                 return;
             }
         }
 
         SF_ASSERT_MSG(false, "Should not get here");
+    }
+
+    u64 hash_inner(ConstLRefOrValType<K> key) {
+        return std::max(_config.hash_fn(key), FIRST_VALID_HASH);
+    }
+
+    u32 index_hash(u64 hash) {
+        return hash & (_capacity - 1);
     }
 };
 

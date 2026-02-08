@@ -15,6 +15,7 @@ struct GeneralPurposeAllocator {
     void free(void* addr, u16 alignment = 0) noexcept;
     void free_handle(usize handle, u16 alignment = 0) noexcept;
     void clear() noexcept {}
+    static constexpr bool using_handle() noexcept { return false; }
 };
 
 GeneralPurposeAllocator* get_current_gpa();
