@@ -18,8 +18,11 @@
 
 namespace sf {
 
+#define DYN_ARRAY_DEFAULT_CAPACITY 32u
+#define DYN_ARRAY_DEFAULT_GROW_FACTOR 2.0f
+
 // _capacity and _len are in elements, not bytes
-template<typename T, AllocatorTrait Allocator = GeneralPurposeAllocator, f32 GROW_FACTOR = 2.0f, u32 DEFAULT_CAPACITY = 8>
+template<typename T, AllocatorTrait Allocator = GeneralPurposeAllocator>
 struct DynamicArray {
 protected:
     union Data {
@@ -29,8 +32,9 @@ protected:
     
     Allocator*   _allocator;
     Data         _data;
-    u32          _capacity;
+    u32          _capacity = DYN_ARRAY_DEFAULT_CAPACITY;
     u32          _count;
+    f32          _grow_factor = DYN_ARRAY_DEFAULT_GROW_FACTOR;
 
 public:
     using ValueType     = T;
@@ -51,10 +55,11 @@ public:
         }
     }
 
-    explicit DynamicArray(Allocator* allocator) noexcept
+    explicit DynamicArray(Allocator* allocator, f32 grow_factor = DYN_ARRAY_DEFAULT_GROW_FACTOR) noexcept
         : _allocator{allocator}
         , _capacity{0}
         , _count{0}
+        , _grow_factor{grow_factor}
     {
         if constexpr (USE_HANDLE) {
             _data.handle = INVALID_ALLOC_HANDLE;
@@ -63,10 +68,11 @@ public:
         }
     }
 
-    explicit DynamicArray(u32 capacity_input, Allocator* allocator) noexcept
+    explicit DynamicArray(u32 capacity_input, Allocator* allocator, f32 grow_factor = DYN_ARRAY_DEFAULT_GROW_FACTOR) noexcept
         : _allocator{allocator}
         , _capacity{capacity_input}
         , _count{0}
+        , _grow_factor{grow_factor}
     {
         if (_allocator) {
             if constexpr (USE_HANDLE) {
@@ -77,10 +83,11 @@ public:
         }
     }
 
-    explicit DynamicArray(u32 capacity_input, u32 count, Allocator* allocator) noexcept
+    explicit DynamicArray(u32 capacity_input, u32 count, Allocator* allocator, f32 grow_factor = DYN_ARRAY_DEFAULT_GROW_FACTOR) noexcept
         : _allocator{allocator}
         , _capacity{capacity_input}
         , _count{0}
+        , _grow_factor{grow_factor}
     {
         SF_ASSERT_MSG(capacity_input >= count, "Count shouldn't be bigger than capacity");
 
@@ -159,6 +166,7 @@ public:
         , _data{rhs._data}
         , _capacity{rhs._capacity}
         , _count{rhs._count}
+        , _grow_factor{rhs._grow_factor}
     {   
         rhs._capacity = 0;
         if constexpr (USE_HANDLE) {
@@ -197,6 +205,7 @@ public:
         , _data{rhs._data}
         , _capacity{rhs._capacity}
         , _count{rhs._count}
+        , _grow_factor{rhs._grow_factor}
     {
         if (rhs._allocator && rhs._count > 0) {
             if constexpr (USE_HANDLE) {
@@ -260,9 +269,14 @@ public:
 
     void set_allocator(Allocator* allocator) noexcept
     {
-        if (allocator) {
-            _allocator = allocator;
-        }
+        SF_ASSERT(allocator);
+        _allocator = allocator;
+    }
+
+    void set_grow_factor(f32 factor) noexcept
+    {
+        SF_ASSERT(factor > 1.0f);
+        _grow_factor = factor;
     }
     
     template<typename ...Args>
@@ -465,8 +479,8 @@ public:
     }
 
     friend bool operator==(
-        const DynamicArray<T, Allocator, GROW_FACTOR, DEFAULT_CAPACITY>& first,
-        const DynamicArray<T, Allocator, GROW_FACTOR, DEFAULT_CAPACITY>& second) noexcept
+        const DynamicArray<T, Allocator>& first,
+        const DynamicArray<T, Allocator>& second) noexcept
     {
         return first._count == second._count && sf_mem_cmp(first.access_data(), second.access_data(), first._count * sizeof(T));
     }
@@ -529,11 +543,11 @@ protected:
         u32 old_capacity = _capacity;
 
         if (_capacity == 0) {
-            _capacity = std::max(DEFAULT_CAPACITY, new_capacity);
+            _capacity = std::max(DYN_ARRAY_DEFAULT_CAPACITY, new_capacity);
         } else {
             if (!exact) {
                 while (_capacity < new_capacity) {
-                    _capacity *= GROW_FACTOR;
+                    _capacity *= _grow_factor;
                 }
             } else {
                 _capacity = new_capacity;
@@ -559,7 +573,7 @@ protected:
     {
         u32 free_capacity = _capacity - _count;
         if (free_capacity < alloc_count) {
-            grow(_capacity * GROW_FACTOR);
+            grow(_capacity * _grow_factor);
         }
         T* return_memory = access_data() + _count;
         _count += alloc_count;
@@ -570,7 +584,7 @@ protected:
     {
         u32 free_capacity = _capacity - _count;
         if (free_capacity < alloc_count) {
-            grow(_capacity * GROW_FACTOR);
+            grow(_capacity * _grow_factor);
         }
         _count += alloc_count;
     }
@@ -593,13 +607,6 @@ protected:
         construct_at(place_ptr, std::forward<Args>(args)...);
     }
 
-    // T* move_forward_and_default_construct(u32 count) noexcept
-    // {
-    //     T* place_ptr = move_ptr_forward(count);
-    //     default_construct_at(place_ptr);
-    //     return place_ptr;
-    // }
-
     void move_ptr_backwards(u32 move_count) noexcept
     {
         SF_ASSERT_MSG((move_count) <= _count, "Can't move more than all current elements");
@@ -616,8 +623,8 @@ protected:
     }
 }; // DynamicArray
 
-template<AllocatorTrait Allocator, bool USE_HANDLE = true, f32 GROW_FACTOR = 2.0f, u32 DEFAULT_CAPACITY = 8>
-struct String : public DynamicArray<char, Allocator, GROW_FACTOR, DEFAULT_CAPACITY>
+template<AllocatorTrait Allocator>
+struct String : public DynamicArray<char, Allocator>
 {
     using DynamicArray<char, Allocator>::DynamicArray;
     
@@ -659,7 +666,7 @@ struct String : public DynamicArray<char, Allocator, GROW_FACTOR, DEFAULT_CAPACI
     }
 
     void trim_end() noexcept {
-        while (this->_count > 0 && std::isspace(this->last())) {
+        while (this->_count > 0 && isspace(this->last())) {
             this->_count--;
         }
     }

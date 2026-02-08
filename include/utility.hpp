@@ -2,7 +2,6 @@
 
 #include "defines.hpp"
 #include <concepts>
-#include <format>
 #include <string_view>
 #include <type_traits>
 
@@ -25,12 +24,6 @@ constexpr T next_power_of_2(T x)
 	return y;
 }
 
-// TODO: make it work
-template<typename T, typename CharT>
-concept HasFormatter = requires(std::format_parse_context ctx) {
-    std::formatter<T, CharT>::format(std::declval<T>(), ctx);
-};
-
 template<typename T>
 consteval bool smaller_than_two_words() noexcept {
     return sizeof(T) <= sizeof(void*) * 2;
@@ -52,10 +45,10 @@ struct ConstLRefOrVal {
 };
 
 template<typename T>
-using ConstLRefOrValType = ConstLRefOrVal<T>::Type;
+using ConstLRefOrValType = typename ConstLRefOrVal<T>::Type;
 
 template<typename T>
-using RRefOrValType = RRefOrVal<T>::Type;
+using RRefOrValType = typename RRefOrVal<T>::Type;
 
 template<typename First, typename Second>
 concept SameTypes = std::same_as<std::remove_cv_t<std::remove_reference_t<First>>, std::remove_cv_t<std::remove_reference_t<Second>>>;

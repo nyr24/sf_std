@@ -6,7 +6,7 @@
 
 namespace sf {
 
-inline constexpr u16 bitset_get_bit_size(u16 max_bit) { return static_cast<u16>(std::ceil(max_bit / 64.0f)); }
+inline u16 bitset_get_bit_size(u16 max_bit) { return static_cast<u16>(std::ceil(max_bit / 64.0f)); }
 
 template<u16 BIT_SIZE>
 struct BitSet {
